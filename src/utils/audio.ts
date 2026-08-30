@@ -430,6 +430,116 @@ class RetroAudioEngine {
     osc.stop(now + 0.055);
   }
 
+  // Bonus Phase / FEVER Start Fanfare (Uplifting ascending fast arcade arpeggio with brass power chords & crystal glints)
+  playBonusStart() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    // 1. C Major Ascending Sparkling Fanfare: C5, E5, G5, C6, E6, G6, C7
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98, 2093.0];
+    notes.forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      const t = now + i * 0.05;
+
+      osc.type = i % 2 === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.2, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.28);
+    });
+
+    // 2. Triumphant Final Power Chord (C6 + E6 + G6 + C7) sustained ring
+    const chordT = now + notes.length * 0.05;
+    [1046.5, 1318.51, 1567.98, 2093.0].forEach((freq) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, chordT);
+
+      gain.gain.setValueAtTime(0.001, chordT);
+      gain.gain.linearRampToValueAtTime(0.16, chordT + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, chordT + 0.65);
+
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+
+      osc.start(chordT);
+      osc.stop(chordT + 0.68);
+    });
+  }
+
+  // Heart Coin pickup sound (High, glittering sweet double sparkle chime)
+  playHeartCoinPickup() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    // Sparkling sweet chime: E6 -> A6 -> E7
+    const notes = [
+      { f: 1318.51, start: 0.0, dur: 0.08 },
+      { f: 1760.0, start: 0.04, dur: 0.12 },
+      { f: 2637.02, start: 0.08, dur: 0.18 },
+    ];
+
+    notes.forEach((n) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'sine';
+
+      const t = now + n.start;
+      osc.frequency.setValueAtTime(n.f, t);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+
+      osc.start(t);
+      osc.stop(t + n.dur + 0.01);
+    });
+  }
+
+  // Bonus Phase Complete chime (Gentle, warm musical resolution)
+  playBonusEnd() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const notes = [1046.5, 880.0, 659.25, 523.25]; // C6, A5, E5, C5
+    notes.forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      const t = now + i * 0.07;
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.14, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.22);
+    });
+  }
+
   toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     return this.isMuted;

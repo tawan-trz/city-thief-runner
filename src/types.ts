@@ -51,7 +51,7 @@ export interface Obstacle {
   lightState?: boolean;
 }
 
-export type LootType = 'GOLD_COIN' | 'CASH_STACK' | 'MONEY_BAG' | 'DIAMOND' | 'SKATEBOARD' | 'MAGNET';
+export type LootType = 'GOLD_COIN' | 'CASH_STACK' | 'MONEY_BAG' | 'DIAMOND' | 'SKATEBOARD' | 'MAGNET' | 'HEART_COIN';
 
 export interface LootItem {
   id: number;
@@ -77,7 +77,7 @@ export interface Particle {
   alpha: number;
   life: number;
   maxLife: number;
-  type: 'dust' | 'sparkle' | 'star' | 'money' | 'siren' | 'skate_trail' | 'skate_spark' | 'magnet_spark' | 'magnet_wave';
+  type: 'dust' | 'sparkle' | 'star' | 'money' | 'siren' | 'skate_trail' | 'skate_spark' | 'magnet_spark' | 'magnet_wave' | 'heart_sparkle' | 'fever_burst';
 }
 
 export interface FloatingText {

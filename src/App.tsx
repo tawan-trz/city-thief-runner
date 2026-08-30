@@ -35,11 +35,14 @@ export default function App() {
   const [score, setScore] = useState<number>(0);
   const [highScore, setHighScore] = useState<number>(0);
   const [stolenCash, setStolenCash] = useState<number>(0);
+  const [totalCoins, setTotalCoins] = useState<number>(0);
   const [currentSpeed, setCurrentSpeed] = useState<number>(1.0);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isNewHighScore, setIsNewHighScore] = useState<boolean>(false);
   const [skateboardTimer, setSkateboardTimer] = useState<number>(0);
   const [magnetTimer, setMagnetTimer] = useState<number>(0);
+  const [bonusTimer, setBonusTimer] = useState<number>(0);
+  const [isBonusPhase, setIsBonusPhase] = useState<boolean>(false);
 
   // References for mutable game loop state to eliminate React render lag
   const stateRef = useRef<{
@@ -48,6 +51,7 @@ export default function App() {
     score: number;
     highScore: number;
     stolenCash: number;
+    totalCoins: number;
     baseSpeed: number;
     currentSpeed: number;
     groundOffset: number;
@@ -62,26 +66,39 @@ export default function App() {
     magnetDuration: number;
     magnetCooldown: number;
     lootPatternIndex: number;
+    lastBonusMilestone: number;
+    isBonusPhase: boolean;
+    bonusDuration: number;
+    bonusTransition: number;
+    bonusGracePeriod: number;
+    bonusPatternStep: number;
   }>({
     gameState: 'IDLE',
     difficulty: 'NORMAL',
     score: 0,
     highScore: 0,
     stolenCash: 0,
-    baseSpeed: 2.4, // Reduced by 37% for comfortable, clear reaction pacing
+    totalCoins: 0,
+    baseSpeed: 6.3, // High-Pacing 60fps base speed (~378 px/sec) - fast, thrilling & energetic start
     currentSpeed: 1.0,
     groundOffset: 0,
     sirenTimer: 0,
-    nextSpawnDistance: 280,
-    nextLootDistance: 340,
+    nextSpawnDistance: 420,
+    nextLootDistance: 260,
     lastSpeedLevel: 1.0,
     hasAnnouncedNewRecord: false,
     initialHighScore: 0,
     skateboardDuration: 0,
-    skateboardCooldown: 18.0,
+    skateboardCooldown: 16.0,
     magnetDuration: 0,
     magnetCooldown: 12.0,
     lootPatternIndex: 0,
+    lastBonusMilestone: 0,
+    isBonusPhase: false,
+    bonusDuration: 0,
+    bonusTransition: 0,
+    bonusGracePeriod: 0,
+    bonusPatternStep: 0,
   });
 
   // Entities
@@ -129,6 +146,8 @@ export default function App() {
   const lastObstacleCategoryRef = useRef<'GROUND' | 'OVERHEAD' | null>(null);
 
   const lastTimeRef = useRef<number>(0);
+  const jumpKeyReleasedRef = useRef<boolean>(true);
+  const lastJumpTimeRef = useRef<number>(0);
 
   // Initialize High Score & City Skyline Generation
   useEffect(() => {
@@ -213,12 +232,20 @@ export default function App() {
 
   useEffect(() => {
     stateRef.current.difficulty = difficulty;
-    // Casual, comfortable initial speeds (35% slower for crystal clear vision)
-    stateRef.current.baseSpeed = difficulty === 'FAST' ? 3.2 : 2.4;
+    // Standardized, engaging base speeds across all refresh rates (dt-scaled)
+    stateRef.current.baseSpeed = difficulty === 'FAST' ? 5.2 : 4.2;
   }, [difficulty]);
 
+  // Trim excess particles to keep rendering ultra-smooth on mobile
+  const trimParticles = () => {
+    if (particlesRef.current.length > 35) {
+      particlesRef.current.splice(0, particlesRef.current.length - 35);
+    }
+  };
+
   // Spawn Dust Particles helper
-  const spawnDust = (x: number, y: number, count = 4) => {
+  const spawnDust = (x: number, y: number, count = 3) => {
+    trimParticles();
     for (let i = 0; i < count; i++) {
       particlesRef.current.push({
         id: nextParticleId.current++,
@@ -227,17 +254,18 @@ export default function App() {
         vx: -(Math.random() * 2 + 0.8),
         vy: -(Math.random() * 1.2 + 0.2),
         color: '#94a3b8',
-        size: Math.random() * 4 + 2,
+        size: Math.random() * 3 + 2,
         alpha: 0.85,
         life: 0,
-        maxLife: 18,
+        maxLife: 16,
         type: 'dust',
       });
     }
   };
 
   // Spawn Stolen Money Sparkles
-  const spawnMoneySparkles = (x: number, y: number, count = 8) => {
+  const spawnMoneySparkles = (x: number, y: number, count = 6) => {
+    trimParticles();
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const speed = Math.random() * 2.8 + 1.5;
@@ -248,17 +276,18 @@ export default function App() {
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 1,
         color: Math.random() > 0.5 ? '#22c55e' : '#fde047',
-        size: Math.random() * 3 + 3,
+        size: Math.random() * 3 + 2,
         alpha: 1,
         life: 0,
-        maxLife: 26,
+        maxLife: 22,
         type: Math.random() > 0.4 ? 'money' : 'star',
       });
     }
   };
 
   // Spawn Golden Star Coin Sparkles (radiant bursting stars & gleams on coin pickup)
-  const spawnCoinSparkles = (x: number, y: number, count = 8) => {
+  const spawnCoinSparkles = (x: number, y: number, count = 6) => {
+    trimParticles();
     const starColors = ['#fde047', '#facc15', '#ffffff', '#38bdf8', '#fbbf24'];
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + (Math.random() * 0.4 - 0.2);
@@ -270,10 +299,10 @@ export default function App() {
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 1.2,
         color: starColors[Math.floor(Math.random() * starColors.length)],
-        size: Math.random() * 3 + 3,
+        size: Math.random() * 3 + 2,
         alpha: 1,
         life: 0,
-        maxLife: 22,
+        maxLife: 20,
         type: 'star',
       });
     }
@@ -281,6 +310,7 @@ export default function App() {
 
   // Spawn Skate Jet Flames & Sparks
   const spawnSkateSparks = (x: number, y: number) => {
+    trimParticles();
     const colors = ['#f59e0b', '#ef4444', '#38bdf8', '#fbbf24', '#ffffff'];
     particlesRef.current.push({
       id: nextParticleId.current++,
@@ -289,14 +319,14 @@ export default function App() {
       vx: -(Math.random() * 3.5 + 2.5),
       vy: -(Math.random() * 1.4 - 0.4),
       color: colors[Math.floor(Math.random() * colors.length)],
-      size: Math.random() * 4 + 3,
+      size: Math.random() * 3 + 2,
       alpha: 0.9,
       life: 0,
-      maxLife: 16,
+      maxLife: 14,
       type: 'skate_spark',
     });
 
-    if (Math.random() < 0.4) {
+    if (Math.random() < 0.3) {
       particlesRef.current.push({
         id: nextParticleId.current++,
         x: x - 24,
@@ -304,10 +334,10 @@ export default function App() {
         vx: -(Math.random() * 4 + 3),
         vy: 0,
         color: '#38bdf8',
-        size: Math.random() * 8 + 4,
+        size: Math.random() * 6 + 3,
         alpha: 0.6,
         life: 0,
-        maxLife: 12,
+        maxLife: 10,
         type: 'skate_trail',
       });
     }
@@ -315,6 +345,7 @@ export default function App() {
 
   // Spawn Coin Magnet Sparkles & Aura Wave Particles
   const spawnMagnetParticles = (x: number, y: number) => {
+    trimParticles();
     const colors = ['#38bdf8', '#818cf8', '#c084fc', '#fde047', '#ffffff'];
     const angle = Math.random() * Math.PI * 2;
     const speed = Math.random() * 2.2 + 0.8;
@@ -325,14 +356,14 @@ export default function App() {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       color: colors[Math.floor(Math.random() * colors.length)],
-      size: Math.random() * 3 + 2,
+      size: Math.random() * 2.5 + 1.5,
       alpha: 0.9,
       life: 0,
-      maxLife: 18,
+      maxLife: 16,
       type: 'magnet_spark',
     });
 
-    if (Math.random() < 0.25) {
+    if (Math.random() < 0.2) {
       particlesRef.current.push({
         id: nextParticleId.current++,
         x,
@@ -343,14 +374,63 @@ export default function App() {
         size: 14,
         alpha: 0.8,
         life: 0,
-        maxLife: 14,
+        maxLife: 12,
         type: 'magnet_wave',
+      });
+    }
+  };
+
+  // Spawn Glowing Ruby-Pink Heart Sparkles on Heart Coin Pickup
+  const spawnHeartSparkles = (x: number, y: number, count = 8) => {
+    trimParticles();
+    const colors = ['#f43f5e', '#fb7185', '#fda4af', '#fde047', '#ffffff'];
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + (Math.random() * 0.4 - 0.2);
+      const speed = Math.random() * 3.2 + 1.4;
+      particlesRef.current.push({
+        id: nextParticleId.current++,
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1.4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: Math.random() * 3.5 + 2.5,
+        alpha: 1,
+        life: 0,
+        maxLife: 24,
+        type: Math.random() < 0.6 ? 'heart_sparkle' : 'star',
+      });
+    }
+  };
+
+  // Spawn Fever Mode Burst Rings & Starbursts on Bonus Activation
+  const spawnFeverBursts = (x: number, y: number, count = 16) => {
+    trimParticles();
+    const colors = ['#f43f5e', '#ec4899', '#a855f7', '#38bdf8', '#fde047', '#ffffff'];
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count;
+      const speed = Math.random() * 4.5 + 2.5;
+      particlesRef.current.push({
+        id: nextParticleId.current++,
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        color: colors[i % colors.length],
+        size: Math.random() * 5 + 3,
+        alpha: 1,
+        life: 0,
+        maxLife: 32,
+        type: i % 3 === 0 ? 'fever_burst' : 'heart_sparkle',
       });
     }
   };
 
   // Add Floating Text helper
   const addFloatingText = (text: string, x: number, y: number, color = '#fde047', size = 13) => {
+    if (floatingTextsRef.current.length > 8) {
+      floatingTextsRef.current.splice(0, floatingTextsRef.current.length - 8);
+    }
     floatingTextsRef.current.push({
       id: nextTextId.current++,
       text,
@@ -361,18 +441,18 @@ export default function App() {
       size,
       alpha: 1,
       life: 0,
-      maxLife: 42,
+      maxLife: 38,
     });
   };
 
-  // Safe Single-Row Loot Spawner with Strict Distance & Overlap Protection (Prevents Any Bunching / Clumping)
+  // Safe Loot Spawner with Strict Distance & Overlap Protection (Prevents Any Bunching / Clumping)
   const spawnSingleRowLoot = (
     items: { x: number; y: number; type: LootType; val: number }[]
   ) => {
     items.forEach((pt, idx) => {
-      // Check if any existing uncollected loot is closer than 40px in x-axis
+      // Check if any existing uncollected loot is closer than 18px in 2D space (allows dense mountain formations)
       const isTooClose = lootItemsRef.current.some(
-        (item) => !item.collected && Math.abs(item.x - pt.x) < 40
+        (item) => !item.collected && Math.hypot(item.x - pt.x, item.y - pt.y) < 18
       );
       if (!isTooClose) {
         lootItemsRef.current.push({
@@ -380,8 +460,8 @@ export default function App() {
           type: pt.type,
           x: pt.x,
           y: pt.y,
-          width: 22,
-          height: 22,
+          width: pt.type === 'HEART_COIN' ? 24 : pt.type === 'MAGNET' ? 28 : pt.type === 'DIAMOND' ? 24 : 22,
+          height: pt.type === 'HEART_COIN' ? 24 : pt.type === 'MAGNET' ? 28 : pt.type === 'DIAMOND' ? 24 : 22,
           collected: false,
           animFrame: idx * 3,
           animTimer: 0,
@@ -403,7 +483,7 @@ export default function App() {
       p.height = 18; // Generous low-clearance hitbox height for effortless slides
       p.width = 46;
       soundFx.playSlide();
-      spawnDust(p.x, GROUND_Y, 4);
+      spawnDust(p.x, GROUND_Y, 3);
 
       // Fast-fall if triggered while in mid-air
       if (!p.isGrounded) {
@@ -421,8 +501,13 @@ export default function App() {
     }
   }, []);
 
-  // Jump Action (Airy, buoyant parabolic trajectory with Coyote Time and Jump Buffering support)
+  // Jump Action (Fixed Double-Jump Bug: Double jump ONLY occurs if player releases and presses again in mid-air)
   const handleJump = useCallback(() => {
+    const now = performance.now();
+    // Anti-chatter / duplicate event debounce: block rapid duplicate events within 55ms
+    if (now - lastJumpTimeRef.current < 55) return;
+    lastJumpTimeRef.current = now;
+
     const p = playerRef.current;
     const s = stateRef.current;
 
@@ -445,29 +530,38 @@ export default function App() {
       p.width = 34;
     }
 
-    // Grounded Jump OR Coyote Time Jump (Grace window for comfortable, stress-free takeoffs)
+    // Grounded Jump OR Coyote Time Jump (Grace window for comfortable takeoffs)
     const canGroundJump = p.isGrounded || ((p.coyoteTimer ?? 0) > 0 && p.jumpCount === 0);
 
     if (canGroundJump) {
-      p.vy = -8.8; // Soft, buoyant upward lift with extended forward hangtime
+      p.vy = -10.8; // Snappy, athletic jump takeoff with crisp recovery arc
       p.isGrounded = false;
       p.jumpCount = 1;
       p.coyoteTimer = 0;
       p.jumpBufferTimer = 0;
+      jumpKeyReleasedRef.current = false; // Player is currently holding the jump input
       soundFx.playJump();
-      spawnDust(p.x, GROUND_Y, 4);
-    } else if (p.jumpCount < p.maxJumps) {
-      // Double Jump in mid-air (High-lift agile hop)
-      p.vy = -7.6;
-      p.jumpCount = 2;
-      p.jumpBufferTimer = 0;
-      soundFx.playDoubleJump();
-      spawnMoneySparkles(p.x, p.y - p.height / 2, 7);
-      addFloatingText('DOUBLE JUMP! 💨', p.x, p.y - p.height - 10, '#38bdf8', 12);
+      spawnDust(p.x, GROUND_Y, 3);
+    } else if (p.jumpCount === 1) {
+      // Mid-Air Double Jump: Strictly requires user to have released the button first!
+      if (jumpKeyReleasedRef.current) {
+        p.vy = -9.4;
+        p.jumpCount = 2;
+        p.jumpBufferTimer = 0;
+        jumpKeyReleasedRef.current = false; // Key is pressed again
+        soundFx.playDoubleJump();
+        spawnMoneySparkles(p.x, p.y - p.height / 2, 6);
+        addFloatingText('DOUBLE JUMP! 💨', p.x, p.y - p.height - 10, '#38bdf8', 12);
+      }
     } else {
-      // Jump Buffering: Store jump input for 12 frames (~200ms) if player pressed jump just before landing
+      // Jump Buffering: Store jump input for 12 ticks (~200ms) if player pressed jump just before landing
       p.jumpBufferTimer = 12;
     }
+  }, []);
+
+  // Jump Input Release (Enables double jump eligibility upon lifting finger/key)
+  const handleJumpRelease = useCallback(() => {
+    jumpKeyReleasedRef.current = true;
   }, []);
 
   // Start Game
@@ -480,29 +574,42 @@ export default function App() {
 
   // Reset Game Entities
   const resetGameEntities = () => {
-    const baseSpeed = difficulty === 'FAST' ? 3.2 : 2.4;
+    const baseSpeed = difficulty === 'FAST' ? 7.6 : 6.3;
 
     stateRef.current.score = 0;
     stateRef.current.stolenCash = 0;
+    stateRef.current.totalCoins = 0;
     stateRef.current.currentSpeed = 1.0;
     stateRef.current.baseSpeed = baseSpeed;
     stateRef.current.groundOffset = 0;
     stateRef.current.sirenTimer = 0;
-    stateRef.current.nextSpawnDistance = 480;
-    stateRef.current.nextLootDistance = 340;
+    stateRef.current.nextSpawnDistance = 420;
+    stateRef.current.nextLootDistance = 260;
     stateRef.current.lastSpeedLevel = 1.0;
     stateRef.current.hasAnnouncedNewRecord = false;
     stateRef.current.initialHighScore = stateRef.current.highScore;
     stateRef.current.skateboardDuration = 0;
-    stateRef.current.skateboardCooldown = 18.0;
+    stateRef.current.skateboardCooldown = 16.0;
     stateRef.current.magnetDuration = 0;
     stateRef.current.magnetCooldown = 12.0;
+    stateRef.current.lastBonusMilestone = 0;
+    stateRef.current.isBonusPhase = false;
+    stateRef.current.bonusDuration = 0;
+    stateRef.current.bonusTransition = 0;
+    stateRef.current.bonusGracePeriod = 0;
+    stateRef.current.bonusPatternStep = 0;
+
+    jumpKeyReleasedRef.current = true;
+    lastJumpTimeRef.current = 0;
 
     setScore(0);
     setStolenCash(0);
+    setTotalCoins(0);
     setCurrentSpeed(1.0);
     setSkateboardTimer(0);
     setMagnetTimer(0);
+    setBonusTimer(0);
+    setIsBonusPhase(false);
 
     playerRef.current = {
       x: 240,
@@ -576,45 +683,126 @@ export default function App() {
     setDifficulty(diff);
   };
 
-  // Keyboard Event Handlers (Jump with Space/Up/W, Duck with Down/S)
+  // Keyboard Event Handlers with full preventDefault for all game keys (Jump, Duck, Pause, Mute)
   useEffect(() => {
+    const GAME_ACTION_KEYS = new Set([
+      'Space',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'KeyW',
+      'KeyS',
+      'KeyA',
+      'KeyD',
+      'KeyP',
+      'KeyM',
+      'KeyR',
+      'PageUp',
+      'PageDown',
+      'Home',
+      'End',
+    ]);
+
+    const isGameKey = (e: KeyboardEvent) => {
+      if (GAME_ACTION_KEYS.has(e.code)) return true;
+      const k = e.key.toLowerCase();
+      return (
+        k === ' ' ||
+        k === 'arrowup' ||
+        k === 'arrowdown' ||
+        k === 'arrowleft' ||
+        k === 'arrowright' ||
+        k === 'w' ||
+        k === 's' ||
+        k === 'a' ||
+        k === 'd' ||
+        k === 'p' ||
+        k === 'm' ||
+        k === 'r'
+      );
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+      // 1. ALWAYS prevent default browser scrolling / actions for game keys (including repeated keydown events)
+      if (isGameKey(e)) {
         e.preventDefault();
+        e.stopPropagation();
+      }
+
+      const isJump =
+        e.code === 'Space' ||
+        e.code === 'ArrowUp' ||
+        e.code === 'KeyW' ||
+        e.key === ' ' ||
+        e.key === 'ArrowUp' ||
+        e.key.toLowerCase() === 'w';
+
+      const isDuck =
+        e.code === 'ArrowDown' ||
+        e.code === 'KeyS' ||
+        e.key === 'ArrowDown' ||
+        e.key.toLowerCase() === 's';
+
+      const isPause = e.code === 'KeyP' || e.key.toLowerCase() === 'p';
+      const isMute = e.code === 'KeyM' || e.key.toLowerCase() === 'm';
+
+      // Ignore key-repeat on Jump to prevent unintended automatic mid-air double jump
+      if (e.repeat && isJump) return;
+
+      if (isJump) {
         handleJump();
-      } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
-        e.preventDefault();
+      } else if (isDuck) {
         handleDuckStart();
-      } else if (e.code === 'KeyP') {
-        e.preventDefault();
-        togglePause();
-      } else if (e.code === 'KeyM') {
-        e.preventDefault();
-        toggleSound();
+      } else if (isPause) {
+        if (!e.repeat) togglePause();
+      } else if (isMute) {
+        if (!e.repeat) toggleSound();
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+      // ALWAYS prevent default browser scrolling / actions for game keys on release
+      if (isGameKey(e)) {
         e.preventDefault();
+        e.stopPropagation();
+      }
+
+      const isJump =
+        e.code === 'Space' ||
+        e.code === 'ArrowUp' ||
+        e.code === 'KeyW' ||
+        e.key === ' ' ||
+        e.key === 'ArrowUp' ||
+        e.key.toLowerCase() === 'w';
+
+      const isDuck =
+        e.code === 'ArrowDown' ||
+        e.code === 'KeyS' ||
+        e.key === 'ArrowDown' ||
+        e.key.toLowerCase() === 's';
+
+      if (isJump) {
+        handleJumpRelease();
+      } else if (isDuck) {
         handleDuckEnd();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, { passive: false });
+    window.addEventListener('keyup', handleKeyUp, { passive: false });
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleJump, handleDuckStart, handleDuckEnd, gameState]);
+  }, [handleJump, handleJumpRelease, handleDuckStart, handleDuckEnd, gameState]);
 
-  // Main 60fps Game Loop Engine
+  // Main High-Performance Delta-Time Game Loop Engine
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
     ctx.imageSmoothingEnabled = false;
@@ -623,8 +811,11 @@ export default function App() {
 
     const gameLoop = (timestamp: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp;
-      const deltaTime = Math.min((timestamp - lastTimeRef.current) / 1000, 0.1);
+      const rawDelta = (timestamp - lastTimeRef.current) / 1000;
       lastTimeRef.current = timestamp;
+      // Cap delta time to 50ms (prevents physics explosions on tab switch)
+      const deltaTime = Math.min(rawDelta, 0.05);
+      const dtScale = deltaTime * 60; // 1.0 at standard 60fps
 
       const p = playerRef.current;
       const cop = copRef.current;
@@ -643,7 +834,7 @@ export default function App() {
         if (s.skateboardDuration > 0) {
           s.skateboardDuration = Math.max(0, s.skateboardDuration - deltaTime);
           p.isSkateboarding = s.skateboardDuration > 0;
-          skateMultiplier = 1.5;
+          skateMultiplier = 1.45;
           setSkateboardTimer(s.skateboardDuration);
 
           // Emit jet flames and wind trail while skateboarding
@@ -667,11 +858,11 @@ export default function App() {
           setMagnetTimer(s.magnetDuration);
 
           // Emit cyan / electric violet sparkle aura around player
-          if (Math.random() < 0.45) {
+          if (Math.random() < 0.4) {
             spawnMagnetParticles(p.x, p.y - p.height / 2);
           }
 
-          // Active Magnetic Attraction for All Nearby Uncollected Coins, Money Bags, and Diamonds
+          // Active Magnetic Attraction for All Nearby Uncollected Coins, Money Bags, Diamonds, and Heart Coins
           const playerCenterX = p.x;
           const playerCenterY = p.y - p.height / 2;
           const magnetRadius = 260;
@@ -682,7 +873,8 @@ export default function App() {
               (loot.type === 'GOLD_COIN' ||
                 loot.type === 'CASH_STACK' ||
                 loot.type === 'MONEY_BAG' ||
-                loot.type === 'DIAMOND')
+                loot.type === 'DIAMOND' ||
+                loot.type === 'HEART_COIN')
             ) {
               const lootCenterX = loot.x + loot.width / 2;
               const lootCenterY = loot.y + loot.height / 2;
@@ -692,11 +884,11 @@ export default function App() {
 
               if (dist < magnetRadius && dist > 1) {
                 // Accelerating magnetic pull speed (stronger suction as item gets closer)
-                const pullSpeed = Math.min(18, 7.5 + (1 - dist / magnetRadius) * 12);
+                const pullSpeed = Math.min(18, 7.5 + (1 - dist / magnetRadius) * 12) * dtScale;
                 loot.x += (dx / dist) * pullSpeed;
                 loot.y += (dy / dist) * pullSpeed;
 
-                if (Math.random() < 0.12) {
+                if (Math.random() < 0.1) {
                   spawnMagnetParticles(lootCenterX, lootCenterY);
                 }
               }
@@ -710,22 +902,101 @@ export default function App() {
           }
         }
 
-        // Ultra-smooth, gradual acceleration (barely noticeable speedup, never rushed)
-        // Normal mode caps at 1.20x (~2.88px/frame), Fast mode caps at 1.30x (~4.16px/frame)
-        const maxCap = s.difficulty === 'FAST' ? 1.30 : 1.20;
-        const progressMultiplier = 1.0 + (s.score / 1500) * 0.02;
-        const speedMultiplier = Math.min(maxCap, progressMultiplier) * skateMultiplier;
+        // Bonus Phase Active Timers & Transitions
+        if (s.isBonusPhase) {
+          s.bonusDuration = Math.max(0, s.bonusDuration - deltaTime);
+          setBonusTimer(s.bonusDuration);
+          s.bonusTransition = Math.min(1.0, s.bonusTransition + deltaTime * 2.5);
+
+          // Subtle ambient gold glints floating from player during bonus mode
+          if (Math.random() < 0.3) {
+            spawnCoinSparkles(p.x, p.y - p.height / 2, 1);
+          }
+
+          if (s.bonusDuration <= 0) {
+            s.isBonusPhase = false;
+            setIsBonusPhase(false);
+            setBonusTimer(0);
+            s.bonusTransition = 0;
+            s.bonusGracePeriod = 0;
+            s.nextLootDistance = 260; // Cut off mountain spawns immediately and restore normal coin spacing
+            cop.targetX = 115; // Smoothly return police to standard chase distance
+            // Obstacles resume with a fair, generous clear runway (360px) for smooth player readjustment
+            s.nextSpawnDistance = 360;
+            soundFx.playBonusEnd();
+            addFloatingText('BONUS COMPLETE! 🚨 POLICE RESUMING CHASE', CANVAS_WIDTH / 2, 90, '#38bdf8', 14);
+            spawnMoneySparkles(CANVAS_WIDTH / 2, 90, 8);
+          }
+        } else {
+          s.bonusTransition = Math.max(0.0, s.bonusTransition - deltaTime * 2.5);
+          if (s.bonusGracePeriod > 0) {
+            s.bonusGracePeriod = Math.max(0, s.bonusGracePeriod - deltaTime);
+          }
+        }
+
+        // High-Pacing Dynamic Speed Scaling based on Escaped Distance (score in meters):
+        // 0 - 100m: Fast energetic getaway start (1.00x -> 1.08x)
+        // 100 - 300m: Immediate acceleration (1.08x -> 1.22x)
+        // 300 - 600m: Intense sprint flow (1.22x -> 1.38x)
+        // 600 - 1000m: Hardcore high-adrenaline zone (1.38x -> 1.52x)
+        // 1000m+: Hardcore Arcade Speed ceiling (1.52x -> 1.62x NORMAL / 1.72x FAST)
+        let progressMultiplier = 1.0;
+        if (s.score <= 100) {
+          progressMultiplier = 1.0 + (s.score / 100) * 0.08;
+        } else if (s.score <= 300) {
+          progressMultiplier = 1.08 + ((s.score - 100) / 200) * 0.14;
+        } else if (s.score <= 600) {
+          progressMultiplier = 1.22 + ((s.score - 300) / 300) * 0.16;
+        } else if (s.score <= 1000) {
+          progressMultiplier = 1.38 + ((s.score - 600) / 400) * 0.14;
+        } else {
+          // Asymptotic soft approach to hardcore arcade ceiling
+          progressMultiplier = 1.52 + Math.min(0.10, ((s.score - 1000) / 1000) * 0.10);
+        }
+
+        // Hardcore Arcade Max Speed Cap
+        const maxCap = s.difficulty === 'FAST' ? 1.72 : 1.62;
+        const rawSpeed = progressMultiplier * skateMultiplier;
+        const speedMultiplier = Math.min(maxCap + (skateMultiplier > 1 ? 0.06 : 0), rawSpeed);
 
         s.currentSpeed = speedMultiplier;
         setCurrentSpeed(speedMultiplier);
 
         const activeSpeed = s.baseSpeed * speedMultiplier;
-        s.groundOffset += activeSpeed;
+        const stepSpeed = activeSpeed * dtScale;
+        s.groundOffset += stepSpeed;
 
         // Escaped Distance calculation (smooth meters) & Real Survival Score
-        // Base survival grants ~6 points per second, plus speed multiplier & skateboard bonus
-        s.score += deltaTime * 6.0 * speedMultiplier;
+        // Base survival rate: ~10 meters/points per second scaled by speed
+        s.score += deltaTime * 10.0 * speedMultiplier;
         setScore(Math.floor(s.score));
+
+        // Check 5000m Distance Milestone Mega Coin Mountain Trigger (Strict 7.0s duration)
+        const nextBonusMilestone = (Math.floor(s.lastBonusMilestone / 5000) + 1) * 5000;
+        if (s.score >= nextBonusMilestone && !s.isBonusPhase) {
+          s.lastBonusMilestone = nextBonusMilestone;
+          s.isBonusPhase = true;
+          setIsBonusPhase(true);
+          s.bonusDuration = 7.0; // Strict 7.0 seconds of Mega Coin Mountain reward
+          s.bonusTransition = 1.0;
+          s.bonusPatternStep = 0;
+          s.nextLootDistance = 0; // Trigger immediate mountain spawn on next frame
+          setBonusTimer(7.0);
+
+          // Force clear active obstacles so player enjoys the bonus mountain completely safely
+          obstaclesRef.current = [];
+
+          // Police officer peacefully backs away off-screen during bonus celebration
+          cop.targetX = -80;
+          cop.x = -80;
+
+          // Sound fanfare & high-impact visual particles
+          soundFx.playBonusStart();
+          spawnFeverBursts(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 28);
+          addFloatingText(`🌟 ${nextBonusMilestone}M REACHED! 🌟`, CANVAS_WIDTH / 2, 60, '#fde047', 16);
+          addFloatingText(`🏔️ MEGA COIN MOUNTAIN BONUS! 💰`, CANVAS_WIDTH / 2, 90, '#38bdf8', 15);
+          addFloatingText(`CLIMB THE COIN PYRAMID & GRAB MAGNET! 🧲`, CANVAS_WIDTH / 2, 118, '#fbbf24', 12);
+        }
 
         // Speed alert announcement (only if speed increases visibly)
         const currentSpeedLevel = Math.floor(speedMultiplier * 10) / 10;
@@ -733,7 +1004,7 @@ export default function App() {
           s.lastSpeedLevel = currentSpeedLevel;
           soundFx.playSpeedUp();
           addFloatingText('SPEED UP! 🚨', CANVAS_WIDTH / 2, 130, '#fde047', 14);
-          spawnMoneySparkles(CANVAS_WIDTH / 2, 130, 8);
+          spawnMoneySparkles(CANVAS_WIDTH / 2, 130, 6);
         }
 
         // Check High Score
@@ -746,7 +1017,7 @@ export default function App() {
             setIsNewHighScore(true);
             soundFx.playNewRecord();
             addFloatingText('NEW RECORD ESCAPE! 🏆', CANVAS_WIDTH / 2, 100, '#fde047', 15);
-            spawnMoneySparkles(CANVAS_WIDTH / 2, 100, 8);
+            spawnMoneySparkles(CANVAS_WIDTH / 2, 100, 7);
           }
 
           try {
@@ -760,19 +1031,19 @@ export default function App() {
         if (p.isGrounded) {
           p.coyoteTimer = 12;
         } else {
-          if ((p.coyoteTimer ?? 0) > 0) p.coyoteTimer = (p.coyoteTimer ?? 0) - 1;
+          if ((p.coyoteTimer ?? 0) > 0) p.coyoteTimer = Math.max(0, (p.coyoteTimer ?? 0) - dtScale);
         }
 
         if ((p.jumpBufferTimer ?? 0) > 0) {
-          p.jumpBufferTimer = (p.jumpBufferTimer ?? 0) - 1;
+          p.jumpBufferTimer = Math.max(0, (p.jumpBufferTimer ?? 0) - dtScale);
         }
 
-        // Robber (Player) Physics with Airy, Buoyant Low-Gravity Arc
-        // (Rising gravity: 0.28 for prolonged hangtime & wide flight curve; Falling gravity: 0.38 for smooth landing)
-        const gravity = p.vy < 0 ? 0.28 : 0.38;
+        // Robber (Player) Physics: Tight, responsive, snappy jump arc & faster gravity fall
+        // Rising gravity: 0.46 for agile takeoff; Falling gravity: 0.68 for swift, snappy landing
+        const gravity = (p.vy < 0 ? 0.46 : 0.68) * dtScale;
         p.vy += gravity;
-        if (p.vy > 9.5) p.vy = 9.5;
-        p.y += p.vy;
+        if (p.vy > 14.0) p.vy = 14.0;
+        p.y += p.vy * dtScale;
 
         // Ground collision & Jump Buffer Execution
         if (p.y >= GROUND_Y) {
@@ -784,282 +1055,459 @@ export default function App() {
           p.coyoteTimer = 12;
 
           if (wasInAir) {
-            spawnDust(p.x, GROUND_Y, 4);
+            spawnDust(p.x, GROUND_Y, 3);
 
             // Execute Buffered Jump if player pressed Jump right before touching down (~200ms window)
             if ((p.jumpBufferTimer ?? 0) > 0) {
               p.jumpBufferTimer = 0;
-              p.vy = -8.8;
+              p.vy = -10.8;
               p.isGrounded = false;
               p.jumpCount = 1;
               p.coyoteTimer = 0;
+              jumpKeyReleasedRef.current = false;
               soundFx.playJump();
-              spawnDust(p.x, GROUND_Y, 4);
+              spawnDust(p.x, GROUND_Y, 3);
             }
           }
         }
 
-        // Robber Running Cycle animation (or sliding dust)
+        // Robber Running Cycle animation (or sliding dust) - Energetic high-frequency sprint
         if (p.isDucking && p.isGrounded) {
-          if (Math.random() < 0.25) {
+          if (Math.random() < 0.2) {
             spawnDust(p.x - 12, GROUND_Y, 1);
           }
         } else {
-          p.runTimer += 1;
-          if (p.runTimer > Math.max(4, 9 - Math.floor(speedMultiplier * 2))) {
+          p.runTimer += dtScale;
+          if (p.runTimer > Math.max(2, 5.5 - Math.floor(speedMultiplier * 1.8))) {
             p.runTimer = 0;
             p.runFrame = (p.runFrame + 1) % 4;
           }
         }
 
-        // Chasing Police Officer Animation
-        cop.runTimer += 1;
-        if (cop.runTimer > Math.max(4, 9 - Math.floor(speedMultiplier * 2))) {
+        // Chasing Police Officer Animation - Fast energetic sprint cadence
+        cop.runTimer += dtScale;
+        if (cop.runTimer > Math.max(2, 5.5 - Math.floor(speedMultiplier * 1.8))) {
           cop.runTimer = 0;
           cop.runFrame = (cop.runFrame + 1) % 4;
         }
-        cop.whistleTimer += 1;
+        cop.whistleTimer += dtScale;
 
         // Periodic runner dust
-        if (p.isGrounded && !p.isDucking && Math.random() < 0.14) {
+        if (p.isGrounded && !p.isDucking && Math.random() < 0.12) {
           spawnDust(p.x - p.width / 2, GROUND_Y, 1);
         }
-        if (Math.random() < 0.14) {
+        if (Math.random() < 0.12) {
           spawnDust(cop.x - cop.width / 2, GROUND_Y, 1);
         }
 
         // Randomly trigger cop whistle sound in background during chase
-        if (Math.random() < 0.0018) {
+        if (Math.random() < 0.0016) {
           soundFx.playWhistle();
         }
 
-        // Spawn Obstacles (Balanced 50/50: Ground for Jumping vs Overhead for Ducking)
-        s.nextSpawnDistance -= activeSpeed;
-        if (s.nextSpawnDistance <= 0) {
-          // 50% Ground Jump obstacles, 50% Overhead Duck obstacles
-          const groundTypes: ObstacleType[] = ['TRAFFIC_CONE', 'TRASH_CAN', 'ROADBLOCK'];
-          const overheadTypes: ObstacleType[] = ['POLICE_DRONE', 'OVERHEAD_BARRIER', 'CONSTRUCTION_SCAFFOLD'];
+        // Spawn Obstacles (Balanced 50/50: Ground for Jumping vs Overhead for Ducking - Paused during Bonus Phase)
+        if (!s.isBonusPhase) {
+          s.nextSpawnDistance -= stepSpeed;
+          if (s.nextSpawnDistance <= 0) {
+            // 50% Ground Jump obstacles, 50% Overhead Duck obstacles
+            const groundTypes: ObstacleType[] = ['TRAFFIC_CONE', 'TRASH_CAN', 'ROADBLOCK'];
+            const overheadTypes: ObstacleType[] = ['POLICE_DRONE', 'OVERHEAD_BARRIER', 'CONSTRUCTION_SCAFFOLD'];
 
-          let chosenCategory: 'GROUND' | 'OVERHEAD';
-          if (lastObstacleCategoryRef.current === null) {
-            chosenCategory = Math.random() < 0.5 ? 'GROUND' : 'OVERHEAD';
-          } else if (lastObstacleCategoryRef.current === 'GROUND') {
-            // Slightly favor alternating to prevent long repetitive streaks
-            chosenCategory = Math.random() < 0.6 ? 'OVERHEAD' : 'GROUND';
-          } else {
-            chosenCategory = Math.random() < 0.6 ? 'GROUND' : 'OVERHEAD';
-          }
-          lastObstacleCategoryRef.current = chosenCategory;
-
-          const randType: ObstacleType =
-            chosenCategory === 'GROUND'
-              ? groundTypes[Math.floor(Math.random() * groundTypes.length)]
-              : overheadTypes[Math.floor(Math.random() * overheadTypes.length)];
-
-          let obsWidth = 32;
-          let obsHeight = 36;
-          let obsY = GROUND_Y - obsHeight;
-
-          if (randType === 'TRAFFIC_CONE') {
-            obsWidth = 26;
-            obsHeight = 30;
-            obsY = GROUND_Y - obsHeight;
-          } else if (randType === 'TRASH_CAN') {
-            obsWidth = 32;
-            obsHeight = 38;
-            obsY = GROUND_Y - obsHeight;
-          } else if (randType === 'ROADBLOCK') {
-            obsWidth = 44;
-            obsHeight = 38;
-            obsY = GROUND_Y - obsHeight;
-          } else if (randType === 'POLICE_DRONE') {
-            obsWidth = 44;
-            obsHeight = 24;
-            // Overhead hovering: head-height to require ducking (SLIDE)
-            obsY = GROUND_Y - 46;
-          } else if (randType === 'OVERHEAD_BARRIER') {
-            obsWidth = 52;
-            obsHeight = 26;
-            // Overhead traffic sign: head-height to require ducking (SLIDE)
-            obsY = GROUND_Y - 48;
-          } else if (randType === 'CONSTRUCTION_SCAFFOLD') {
-            // High Long Overhead Scaffold (100% Slide Mandatory - Impossible to jump over)
-            // Extends from y=0 (top edge of game screen) down to GROUND_Y - 26 (clearance height for sliding)
-            obsWidth = 140;
-            obsY = 0;
-            obsHeight = GROUND_Y - 26; // Leaves 26px crawl tunnel underneath (ducking robber is 18px tall)
-          }
-
-          obstaclesRef.current.push({
-            id: nextObstacleId.current++,
-            type: randType,
-            x: CANVAS_WIDTH + 40,
-            y: obsY,
-            width: obsWidth,
-            height: obsHeight,
-            passed: false,
-            animFrame: 0,
-            animTimer: 0,
-            lightState: true,
-          });
-
-          // 1. GUIDING COIN PATHS FOR OBSTACLES (Strict Uniform Spacing of 48px, Zero Overlap):
-          // A) Ground Obstacles (Cone / Trash Can / Roadblock): 5-coin Jump Arc following character's natural parabolic jump curve
-          if (chosenCategory === 'GROUND') {
-            const obsCenterX = CANVAS_WIDTH + 40 + obsWidth / 2;
-            // High Tier Loot on Obstacle Apex (Roadblock has rare chance for 💎, Trash/Cone has small chance for 💰)
-            const isRoadblock = randType === 'ROADBLOCK';
-            const apexType: LootType = isRoadblock
-              ? (Math.random() < 0.25 ? 'DIAMOND' : Math.random() < 0.6 ? 'MONEY_BAG' : 'GOLD_COIN')
-              : (Math.random() < 0.2 ? 'MONEY_BAG' : 'GOLD_COIN');
-            const apexVal = apexType === 'DIAMOND' ? 50 : apexType === 'MONEY_BAG' ? 20 : 3;
-
-            const arcCoins: { x: number; y: number; type: LootType; val: number }[] = [
-              { x: obsCenterX - 96 - 11, y: GROUND_Y - 22, type: 'GOLD_COIN', val: 2 },
-              { x: obsCenterX - 48 - 11, y: GROUND_Y - 70, type: 'GOLD_COIN', val: 2 },
-              {
-                x: obsCenterX - 11,
-                y: Math.min(obsY - 32, GROUND_Y - 96),
-                type: apexType,
-                val: apexVal,
-              },
-              { x: obsCenterX + 48 - 11, y: GROUND_Y - 70, type: 'GOLD_COIN', val: 2 },
-              { x: obsCenterX + 96 - 11, y: GROUND_Y - 22, type: 'GOLD_COIN', val: 2 },
-            ];
-            spawnSingleRowLoot(arcCoins);
-          } else {
-            // B) Overhead Obstacles (Police Drone / Overhead Barrier / Long Scaffold): Clean Ground Slide Trail directly underneath
-            const obsCenterX = CANVAS_WIDTH + 40 + obsWidth / 2;
-            if (randType === 'CONSTRUCTION_SCAFFOLD') {
-              // 5-coin long continuous slide reward row under the scaffold canopy
-              const longSlideCoins: { x: number; y: number; type: LootType; val: number }[] = [
-                { x: obsCenterX - 80 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                { x: obsCenterX - 40 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                { x: obsCenterX - 11, y: GROUND_Y - 20, type: Math.random() < 0.35 ? 'MONEY_BAG' : 'GOLD_COIN', val: Math.random() < 0.35 ? 18 : 2 },
-                { x: obsCenterX + 40 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                { x: obsCenterX + 80 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-              ];
-              spawnSingleRowLoot(longSlideCoins);
+            let chosenCategory: 'GROUND' | 'OVERHEAD';
+            if (lastObstacleCategoryRef.current === null) {
+              chosenCategory = Math.random() < 0.5 ? 'GROUND' : 'OVERHEAD';
+            } else if (lastObstacleCategoryRef.current === 'GROUND') {
+              // Slightly favor alternating to prevent long repetitive streaks
+              chosenCategory = Math.random() < 0.6 ? 'OVERHEAD' : 'GROUND';
             } else {
-              const slideCoins: { x: number; y: number; type: LootType; val: number }[] = [
-                { x: obsCenterX - 72 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                { x: obsCenterX - 24 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                { x: obsCenterX + 24 - 11, y: GROUND_Y - 20, type: Math.random() < 0.2 ? 'MONEY_BAG' : 'GOLD_COIN', val: Math.random() < 0.2 ? 15 : 2 },
-                { x: obsCenterX + 72 - 11, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-              ];
-              spawnSingleRowLoot(slideCoins);
+              chosenCategory = Math.random() < 0.6 ? 'GROUND' : 'OVERHEAD';
             }
-          }
+            lastObstacleCategoryRef.current = chosenCategory;
 
-          // Relaxed, generous spacing between obstacles (3.3s to 5.2s reaction time)
-          const minGap = 480 + Math.random() * 260;
-          s.nextSpawnDistance = minGap;
-        }
+            const randType: ObstacleType =
+              chosenCategory === 'GROUND'
+                ? groundTypes[Math.floor(Math.random() * groundTypes.length)]
+                : overheadTypes[Math.floor(Math.random() * overheadTypes.length)];
 
-        // 2. OPEN-TRACK LOOT SPAWNER (Only spawns on completely clear track areas with no obstacle overlap)
-        s.nextLootDistance -= activeSpeed;
-        if (s.nextLootDistance <= 0) {
-          const startX = CANVAS_WIDTH + 40;
+            let obsWidth = 32;
+            let obsHeight = 36;
+            let obsY = GROUND_Y - obsHeight;
 
-          // Check if any obstacle is currently in or near the spawn zone [startX - 120, startX + 280]
-          const isObstacleNearby = obstaclesRef.current.some(
-            (obs) => obs.x > startX - 120 && obs.x < startX + 280
-          );
+            if (randType === 'TRAFFIC_CONE') {
+              obsWidth = 26;
+              obsHeight = 30;
+              obsY = GROUND_Y - obsHeight;
+            } else if (randType === 'TRASH_CAN') {
+              obsWidth = 32;
+              obsHeight = 38;
+              obsY = GROUND_Y - obsHeight;
+            } else if (randType === 'ROADBLOCK') {
+              obsWidth = 44;
+              obsHeight = 38;
+              obsY = GROUND_Y - obsHeight;
+            } else if (randType === 'POLICE_DRONE') {
+              obsWidth = 44;
+              obsHeight = 24;
+              // Overhead hovering: head-height to require ducking (SLIDE)
+              obsY = GROUND_Y - 46;
+            } else if (randType === 'OVERHEAD_BARRIER') {
+              obsWidth = 52;
+              obsHeight = 26;
+              // Overhead traffic sign: head-height to require ducking (SLIDE)
+              obsY = GROUND_Y - 48;
+            } else if (randType === 'CONSTRUCTION_SCAFFOLD') {
+              // High Long Overhead Scaffold (100% Slide Mandatory - Impossible to jump over)
+              obsWidth = 140;
+              obsY = 0;
+              obsHeight = GROUND_Y - 26; // Leaves 26px crawl tunnel underneath
+            }
 
-          if (isObstacleNearby) {
-            // Postpone open-track spawn to prevent any collision/overlap with obstacle formations
-            s.nextLootDistance = 150;
-          } else {
-            // Rare Skateboard Power-up (10-12% chance with 25-35s cooldown between drops)
-            const canSpawnSkate =
-              s.skateboardCooldown <= 0 &&
-              s.skateboardDuration <= 0 &&
-              Math.random() < 0.12;
+            obstaclesRef.current.push({
+              id: nextObstacleId.current++,
+              type: randType,
+              x: CANVAS_WIDTH + 40,
+              y: obsY,
+              width: obsWidth,
+              height: obsHeight,
+              passed: false,
+              animFrame: 0,
+              animTimer: 0,
+              lightState: true,
+            });
 
-            // Mid-tier Coin Magnet Power-up (16-18% chance with 20-30s cooldown between drops)
-            const canSpawnMagnet =
-              !canSpawnSkate &&
-              s.magnetCooldown <= 0 &&
-              s.magnetDuration <= 0 &&
-              Math.random() < 0.18;
+            // 1. OBSTACLE-INTEGRATED COIN PATTERNS & BAIT/TRAP PLACEMENTS:
+            const obsCenterX = CANVAS_WIDTH + 40 + obsWidth / 2;
+            if (chosenCategory === 'GROUND') {
+              const isRoadblock = randType === 'ROADBLOCK';
 
-            if (canSpawnSkate) {
-              lootItemsRef.current.push({
-                id: nextLootId.current++,
-                type: 'SKATEBOARD',
-                x: startX,
-                y: GROUND_Y - 45,
-                width: 32,
-                height: 24,
-                collected: false,
-                animFrame: 0,
-                animTimer: 0,
-                value: 300,
-              });
-              s.skateboardCooldown = 25.0 + Math.random() * 10.0;
-            } else if (canSpawnMagnet) {
-              lootItemsRef.current.push({
-                id: nextLootId.current++,
-                type: 'MAGNET',
-                x: startX,
-                y: GROUND_Y - 45,
-                width: 28,
-                height: 28,
-                collected: false,
-                animFrame: 0,
-                animTimer: 0,
-                value: 100,
-              });
-              s.magnetCooldown = 20.0 + Math.random() * 10.0;
-            } else {
-              const currentPattern = s.lootPatternIndex % 2;
-              s.lootPatternIndex = (s.lootPatternIndex + 1) % 2;
+              // Decide between 3 ground obstacle coin configurations:
+              // 1. Parabolic Jump Arc (Safety & Skill Guide)
+              // 2. High Bait Temptation (Big diamond/money bag in air right above or just before landing)
+              // 3. Ground Bait Trap (Low coin trail right before obstacle that tempts running too long)
+              const baitRoll = Math.random();
 
-              if (currentPattern === 0) {
-                // Pattern 1: "แถวตรงเรียบพื้น" (Ground Straight Line) - 4 gleaming coins evenly spaced with 48px gap
-                const lineCoins = [
-                  { x: startX, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 48, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 96, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 144, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+              if (baitRoll < 0.5) {
+                // Config A: Classic 3-Point Parabolic Jump Arc
+                const apexType: LootType = isRoadblock
+                  ? (Math.random() < 0.35 ? 'DIAMOND' : Math.random() < 0.65 ? 'MONEY_BAG' : 'GOLD_COIN')
+                  : (Math.random() < 0.3 ? 'MONEY_BAG' : 'GOLD_COIN');
+                const apexVal = apexType === 'DIAMOND' ? 50 : apexType === 'MONEY_BAG' ? 20 : 3;
+
+                const jumpArc = [
+                  { x: obsCenterX - 55, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
+                  {
+                    x: obsCenterX - 11,
+                    y: Math.min(obsY - 38, GROUND_Y - 95),
+                    type: apexType,
+                    val: apexVal,
+                  },
+                  { x: obsCenterX + 35, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
                 ];
-                spawnSingleRowLoot(lineCoins);
+                spawnSingleRowLoot(jumpArc);
+              } else if (baitRoll < 0.75) {
+                // Config B: "Greed Trap / High Bait" (Diamond perched high in double-jump apex, landing right over hazard)
+                const highBait = [
+                  { x: obsCenterX - 45, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
+                  { x: obsCenterX - 11, y: GROUND_Y - 110, type: 'DIAMOND' as LootType, val: 50 },
+                  { x: obsCenterX + 25, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
+                ];
+                spawnSingleRowLoot(highBait);
               } else {
-                // Pattern 2: "แนวดิ่งนำสายตา" (Double Jump Air Guide) - Parabolic curve ascending to High Apex Cash/Diamond (48px spacing)
-                const apexLootType: LootType = Math.random() < 0.2 ? 'DIAMOND' : 'MONEY_BAG';
-                const apexLootVal = apexLootType === 'DIAMOND' ? 50 : 20;
-
-                const doubleJumpFormation = [
-                  { x: startX, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 48, y: GROUND_Y - 64, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 96, y: GROUND_Y - 108, type: apexLootType, val: apexLootVal }, // High Apex Rare Loot
-                  { x: startX + 144, y: GROUND_Y - 64, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: startX + 192, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                // Config C: "Low Run Bait Trap" (2 coins right before the obstacle edge tempting greed, then high apex coin)
+                const lowBaitTrap = [
+                  { x: obsCenterX - 85, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                  { x: obsCenterX - 50, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                  { x: obsCenterX - 11, y: Math.min(obsY - 38, GROUND_Y - 95), type: 'MONEY_BAG' as LootType, val: 20 },
                 ];
-                spawnSingleRowLoot(doubleJumpFormation);
+                spawnSingleRowLoot(lowBaitTrap);
+              }
+            } else {
+              // Overhead Obstacles (POLICE_DRONE / OVERHEAD_BARRIER / CONSTRUCTION_SCAFFOLD)
+              const isScaffold = randType === 'CONSTRUCTION_SCAFFOLD';
+              const overheadBaitRoll = Math.random();
+
+              if (overheadBaitRoll < 0.6) {
+                // Config A: Clean Ground Slide Trail inside the tunnel (Rewards proper sliding)
+                const slideCoins: { x: number; y: number; type: LootType; val: number }[] = [
+                  { x: obsCenterX - 45, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                  {
+                    x: obsCenterX - 11,
+                    y: GROUND_Y - 20,
+                    type: isScaffold || Math.random() < 0.35 ? 'MONEY_BAG' : 'GOLD_COIN',
+                    val: isScaffold || Math.random() < 0.35 ? 18 : 2,
+                  },
+                  { x: obsCenterX + 25, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                ];
+                spawnSingleRowLoot(slideCoins);
+              } else {
+                // Config B: "Air Bait vs Safe Slide Split" (Greed Trap: High floating Diamond right in front of the drone to tempt jump, but slide trail underneath is safe)
+                const splitRoute: { x: number; y: number; type: LootType; val: number }[] = [
+                  // Safe slide coins under obstacle
+                  { x: obsCenterX - 35, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                  { x: obsCenterX + 15, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                  // High bait coin just ahead of obstacle (tempts jumping early)
+                  { x: obsCenterX - 75, y: GROUND_Y - 70, type: 'DIAMOND', val: 50 },
+                ];
+                spawnSingleRowLoot(splitRoute);
               }
             }
 
-            s.nextLootDistance = 380 + Math.random() * 240;
+            // Dynamic Fair Obstacle Spacing (Scales with speed to guarantee 1.1s - 1.5s reaction window):
+            // - If the obstacle was wide (like CONSTRUCTION_SCAFFOLD at 140px), add extra recovery buffer so player exits slide smoothly.
+            // - Ground vs Overhead obstacles both have guaranteed landing runway before the next hazard (No unavoidable deaths).
+            const extraWidthBuffer = randType === 'CONSTRUCTION_SCAFFOLD' ? 120 : 0;
+            const minClearRunway = 270 + extraWidthBuffer;
+            const randomVariance = Math.random() * 140;
+            const baseGap = (obsWidth + minClearRunway + randomVariance) * speedMultiplier;
+            s.nextSpawnDistance = baseGap;
+          }
+        }
+
+        // 2. OPEN-TRACK COLLECTIBLES & POWER-UP GENERATOR
+        s.nextLootDistance -= stepSpeed;
+        if (s.nextLootDistance <= 0) {
+          const startX = CANVAS_WIDTH + 40;
+
+          if (s.isBonusPhase) {
+            // MEGA COIN MOUNTAIN MILESTONE REWARD: 3 Staggered Grand Formations (Pyramids, Twin Ridges, Treasure Volcano)
+            const patternType = s.bonusPatternStep % 3;
+            s.bonusPatternStep++;
+
+            const colSpacing = 28;
+            const baseY = GROUND_Y - 22;
+
+            if (patternType === 0) {
+              // MOUNTAIN 1: "The Grand Mega Golden Pyramid" (พีระมิดเหรียญทองยักษ์ 5 ชั้น + ยอดแม่เหล็ก Magnet)
+              const mountainCoins: { x: number; y: number; type: LootType; val: number }[] = [];
+
+              // Tier 1 (Ground Base - 9 gold coins across)
+              for (let c = 0; c < 9; c++) {
+                mountainCoins.push({ x: startX + c * colSpacing, y: baseY, type: 'GOLD_COIN', val: 3 });
+              }
+              // Tier 2 (Slope 2 - 7 gold coins)
+              for (let c = 0; c < 7; c++) {
+                mountainCoins.push({ x: startX + (c + 1) * colSpacing, y: baseY - 28, type: 'GOLD_COIN', val: 5 });
+              }
+              // Tier 3 (Slope 3 - 5 items with Money Bags at sides)
+              for (let c = 0; c < 5; c++) {
+                const isBag = c === 0 || c === 4;
+                mountainCoins.push({
+                  x: startX + (c + 2) * colSpacing,
+                  y: baseY - 56,
+                  type: isBag ? 'MONEY_BAG' : 'GOLD_COIN',
+                  val: isBag ? 25 : 8,
+                });
+              }
+              // Tier 4 (Near Peak - 3 items: Money Bags & Diamond)
+              mountainCoins.push({ x: startX + 3 * colSpacing, y: baseY - 84, type: 'MONEY_BAG', val: 30 });
+              mountainCoins.push({ x: startX + 4 * colSpacing, y: baseY - 84, type: 'DIAMOND', val: 50 });
+              mountainCoins.push({ x: startX + 5 * colSpacing, y: baseY - 84, type: 'MONEY_BAG', val: 30 });
+
+              // Peak Summit Apex (MAGNET POWER-UP to instantly vacuum all remaining coins in the mountain!)
+              mountainCoins.push({
+                x: startX + 4 * colSpacing,
+                y: baseY - 116,
+                type: 'MAGNET',
+                val: 100,
+              });
+
+              spawnSingleRowLoot(mountainCoins);
+              s.nextLootDistance = 340;
+            } else if (patternType === 1) {
+              // MOUNTAIN 2: "Twin Diamond Peak Ridges" (เทือกเขาเพชรยอดคู่ 2 ลูกติดกัน)
+              const ridgeCoins: { x: number; y: number; type: LootType; val: number }[] = [];
+
+              // Peak 1 (Left Mountain)
+              for (let c = 0; c < 4; c++) {
+                ridgeCoins.push({ x: startX + c * colSpacing, y: baseY, type: 'GOLD_COIN', val: 3 });
+              }
+              for (let c = 0; c < 2; c++) {
+                ridgeCoins.push({ x: startX + (c + 1) * colSpacing, y: baseY - 32, type: 'MONEY_BAG', val: 20 });
+              }
+              ridgeCoins.push({ x: startX + 1.5 * colSpacing, y: baseY - 68, type: 'DIAMOND', val: 50 });
+
+              // Valley Pass (Center ground reward between the two mountain ridges)
+              ridgeCoins.push({ x: startX + 4.2 * colSpacing, y: baseY, type: 'MONEY_BAG', val: 25 });
+              ridgeCoins.push({ x: startX + 5.2 * colSpacing, y: baseY, type: 'MONEY_BAG', val: 25 });
+
+              // Peak 2 (Right Mountain - High Double-Jump Summit)
+              const m2Offset = 6.5 * colSpacing;
+              for (let c = 0; c < 5; c++) {
+                ridgeCoins.push({ x: startX + m2Offset + c * colSpacing, y: baseY, type: 'GOLD_COIN', val: 4 });
+              }
+              for (let c = 0; c < 3; c++) {
+                ridgeCoins.push({ x: startX + m2Offset + (c + 1) * colSpacing, y: baseY - 34, type: 'GOLD_COIN', val: 6 });
+              }
+              ridgeCoins.push({ x: startX + m2Offset + 1 * colSpacing, y: baseY - 70, type: 'MONEY_BAG', val: 35 });
+              ridgeCoins.push({ x: startX + m2Offset + 3 * colSpacing, y: baseY - 70, type: 'MONEY_BAG', val: 35 });
+              ridgeCoins.push({ x: startX + m2Offset + 2 * colSpacing, y: baseY - 108, type: 'DIAMOND', val: 75 });
+
+              spawnSingleRowLoot(ridgeCoins);
+              s.nextLootDistance = 390;
+            } else {
+              // MOUNTAIN 3: "The Escalating Treasure Mountain" (ภูเขาขุมทรัพย์ทองคำ ถุงเงิน และเพชร)
+              const treasureCoins: { x: number; y: number; type: LootType; val: number }[] = [];
+
+              // Base row (8 Gold Coins)
+              for (let c = 0; c < 8; c++) {
+                treasureCoins.push({ x: startX + c * colSpacing, y: baseY, type: 'GOLD_COIN', val: 4 });
+              }
+              // Tier 2 (6 Money Bags)
+              for (let c = 0; c < 6; c++) {
+                treasureCoins.push({ x: startX + (c + 1) * colSpacing, y: baseY - 30, type: 'MONEY_BAG', val: 20 });
+              }
+              // Tier 3 (4 Diamonds)
+              for (let c = 0; c < 4; c++) {
+                treasureCoins.push({ x: startX + (c + 2) * colSpacing, y: baseY - 62, type: 'DIAMOND', val: 50 });
+              }
+              // Tier 4 (2 Giant Bags)
+              treasureCoins.push({ x: startX + 3 * colSpacing, y: baseY - 94, type: 'MONEY_BAG', val: 50 });
+              treasureCoins.push({ x: startX + 4 * colSpacing, y: baseY - 94, type: 'MONEY_BAG', val: 50 });
+              // Peak Apex (Jackpot Diamond on top)
+              treasureCoins.push({ x: startX + 3.5 * colSpacing, y: baseY - 126, type: 'DIAMOND', val: 100 });
+
+              spawnSingleRowLoot(treasureCoins);
+              s.nextLootDistance = 350;
+            }
+          } else {
+            // NORMAL MODE: Check if an obstacle is immediately occupying this exact coordinate
+            const isObstacleDirectlyHere = obstaclesRef.current.some(
+              (obs) => Math.abs(obs.x + obs.width / 2 - startX) < 55
+            );
+
+            if (isObstacleDirectlyHere) {
+              s.nextLootDistance = 80;
+            } else {
+              const canSpawnSkate =
+                s.skateboardCooldown <= 0 &&
+                s.skateboardDuration <= 0 &&
+                Math.random() < 0.15;
+
+              const canSpawnMagnet =
+                !canSpawnSkate &&
+                s.magnetCooldown <= 0 &&
+                s.magnetDuration <= 0 &&
+                Math.random() < 0.22;
+
+              if (canSpawnSkate) {
+                lootItemsRef.current.push({
+                  id: nextLootId.current++,
+                  type: 'SKATEBOARD',
+                  x: startX,
+                  y: GROUND_Y - 42,
+                  width: 32,
+                  height: 24,
+                  collected: false,
+                  animFrame: 0,
+                  animTimer: 0,
+                  value: 300,
+                });
+                s.skateboardCooldown = 22.0 + Math.random() * 8.0;
+              } else if (canSpawnMagnet) {
+                lootItemsRef.current.push({
+                  id: nextLootId.current++,
+                  type: 'MAGNET',
+                  x: startX,
+                  y: GROUND_Y - 42,
+                  width: 28,
+                  height: 28,
+                  collected: false,
+                  animFrame: 0,
+                  animTimer: 0,
+                  value: 100,
+                });
+                s.magnetCooldown = 18.0 + Math.random() * 8.0;
+              } else {
+                // Switch between 6 distinct fun open-track collectible formations (Geometry, Arcs, Trails, Diamonds, and Staircases):
+                const randFormation = Math.floor(Math.random() * 6);
+
+                if (randFormation === 0) {
+                  // A) Ground 4-Coin Smooth Horizontal Trail
+                  const lineCoins = [
+                    { x: startX, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 34, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 68, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 102, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(lineCoins);
+                } else if (randFormation === 1) {
+                  // B) Mid-Air Jump Arc leading to Sparkling Diamond / Money Bag
+                  const isDiamond = Math.random() < 0.4;
+                  const apexType: LootType = isDiamond ? 'DIAMOND' : 'MONEY_BAG';
+                  const apexVal = isDiamond ? 50 : 20;
+
+                  const jumpArc = [
+                    { x: startX, y: GROUND_Y - 24, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 34, y: GROUND_Y - 60, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 68, y: GROUND_Y - 96, type: apexType, val: apexVal },
+                    { x: startX + 102, y: GROUND_Y - 60, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 136, y: GROUND_Y - 24, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(jumpArc);
+                } else if (randFormation === 2) {
+                  // C) Stepped Staircase Formation (Diagonal Ascension requiring Double Jump)
+                  const isDiamondApex = Math.random() < 0.45;
+                  const staircase = [
+                    { x: startX, y: GROUND_Y - 24, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 32, y: GROUND_Y - 54, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 64, y: GROUND_Y - 84, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 96, y: GROUND_Y - 114, type: (isDiamondApex ? 'DIAMOND' : 'MONEY_BAG') as LootType, val: isDiamondApex ? 50 : 20 },
+                  ];
+                  spawnSingleRowLoot(staircase);
+                } else if (randFormation === 3) {
+                  // D) Diamond / Rhombus Geometric Formation (4 outer coins + center Money Bag)
+                  const diamondShape = [
+                    { x: startX + 36, y: GROUND_Y - 24, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX, y: GROUND_Y - 60, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 36, y: GROUND_Y - 60, type: 'MONEY_BAG' as LootType, val: 20 },
+                    { x: startX + 72, y: GROUND_Y - 60, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 36, y: GROUND_Y - 96, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(diamondShape);
+                } else if (randFormation === 4) {
+                  // E) Sine Wave / Zig-zag Rhythm (Floaters up & down)
+                  const sinePattern = [
+                    { x: startX, y: GROUND_Y - 26, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 32, y: GROUND_Y - 62, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 64, y: GROUND_Y - 26, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 96, y: GROUND_Y - 62, type: 'MONEY_BAG' as LootType, val: 18 },
+                    { x: startX + 128, y: GROUND_Y - 26, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(sinePattern);
+                } else {
+                  // F) 2x3 Matrix Grid (Air & Ground split)
+                  const matrixGrid = [
+                    { x: startX, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 36, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 72, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX, y: GROUND_Y - 68, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: startX + 36, y: GROUND_Y - 68, type: 'DIAMOND' as LootType, val: 50 },
+                    { x: startX + 72, y: GROUND_Y - 68, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(matrixGrid);
+                }
+              }
+
+              // Consistent rhythmic pacing for next open collectible
+              s.nextLootDistance = 240 + Math.random() * 180;
+            }
           }
         }
 
         // Update Obstacles & Collision Detection
         for (let i = obstaclesRef.current.length - 1; i >= 0; i--) {
           const obs = obstaclesRef.current[i];
-          obs.x -= activeSpeed;
+          obs.x -= stepSpeed;
 
           // Animation
-          obs.animTimer += 1;
+          obs.animTimer += dtScale;
           if (obs.animTimer > 6) {
             obs.animTimer = 0;
             obs.animFrame = (obs.animFrame + 1) % 8;
             obs.lightState = !obs.lightState;
           }
 
-          // Accurate, forgiving hitbox check (Generous 7px margin so player never suffers unfair edge deaths)
-          // Standing: height 44 (pTop = GROUND_Y - 38)
-          // Ducking: height 18 (pTop = GROUND_Y - 16) -> Duck passes smoothly and comfortably under drones
+          // Accurate, forgiving hitbox check
           const pLeft = p.x - p.width / 2 + 7;
           const pRight = p.x + p.width / 2 - 7;
           const pTop = p.y - p.height + 6;
@@ -1077,13 +1525,12 @@ export default function App() {
             pTop < obsBottom
           ) {
             if (p.isSkateboarding) {
-              // INVINCIBLE SKATEBOARD SMASH: Destroy obstacle with sparks & smash sound
+              // INVINCIBLE SKATEBOARD SMASH: Destroy obstacle
               soundFx.playSmash();
-              spawnMoneySparkles(obs.x + obs.width / 2, obs.y + obs.height / 2, 10);
-              spawnDust(obs.x + obs.width / 2, obs.y + obs.height / 2, 6);
+              spawnMoneySparkles(obs.x + obs.width / 2, obs.y + obs.height / 2, 8);
+              spawnDust(obs.x + obs.width / 2, obs.y + obs.height / 2, 5);
               addFloatingText('SMASH! 💥', obs.x, obs.y - 10, '#f97316', 14);
 
-              // Remove smashed obstacle
               obstaclesRef.current.splice(i, 1);
               continue;
             }
@@ -1101,8 +1548,8 @@ export default function App() {
             soundFx.playWhistle();
             soundFx.playBusted();
 
-            spawnMoneySparkles(p.x, p.y - p.height / 2, 14);
-            spawnDust(p.x, p.y, 8);
+            spawnMoneySparkles(p.x, p.y - p.height / 2, 10);
+            spawnDust(p.x, p.y, 6);
             addFloatingText('BUSTED! 🚨', p.x, p.y - p.height - 20, '#ef4444', 18);
             break;
           }
@@ -1113,18 +1560,47 @@ export default function App() {
           }
         }
 
-        // Update Loot Collectibles
+        // Update Loot Collectibles & Magnet Pull & Collision Detection
         for (let i = lootItemsRef.current.length - 1; i >= 0; i--) {
           const loot = lootItemsRef.current[i];
-          loot.x -= activeSpeed;
-          loot.animFrame += 1;
+          loot.x -= stepSpeed;
+          loot.animFrame += 0.6 * dtScale;
 
+          // 🧲 Active Magnet Attraction (Smoothly pull uncollected coins/gems/bags toward player)
+          if (!loot.collected && (p.isMagnetActive || s.magnetDuration > 0)) {
+            if (
+              loot.type === 'GOLD_COIN' ||
+              loot.type === 'MONEY_BAG' ||
+              loot.type === 'DIAMOND' ||
+              loot.type === 'HEART_COIN'
+            ) {
+              const targetCenterX = p.x;
+              const targetCenterY = p.y - p.height / 2;
+              const lootCenterX = loot.x + loot.width / 2;
+              const lootCenterY = loot.y + loot.height / 2;
+
+              const dx = targetCenterX - lootCenterX;
+              const dy = targetCenterY - lootCenterY;
+              const dist = Math.hypot(dx, dy);
+
+              if (dist < 280 && dist > 1) {
+                const pullSpeed = Math.min(dist, (9.5 + (280 - dist) * 0.05) * dtScale);
+                loot.x += (dx / dist) * pullSpeed;
+                loot.y += (dy / dist) * pullSpeed;
+
+                if (Math.random() < 0.15) {
+                  spawnMagnetParticles(lootCenterX, lootCenterY);
+                }
+              }
+            }
+          }
+
+          // Collision Detection between Robber and Collectible Item
           if (!loot.collected) {
-            // Magnetic/forgiving pickup buffer for collecting loot smoothly along jump arcs
-            const pLeft = p.x - p.width / 2 - 12;
-            const pRight = p.x + p.width / 2 + 12;
-            const pTop = p.y - p.height - 12;
-            const pBottom = p.y + 10;
+            const pLeft = p.x - p.width / 2 - 14;
+            const pRight = p.x + p.width / 2 + 14;
+            const pTop = p.y - p.height - 14;
+            const pBottom = p.y + 12;
 
             if (
               pRight > loot.x &&
@@ -1135,17 +1611,15 @@ export default function App() {
               loot.collected = true;
 
               if (loot.type === 'SKATEBOARD') {
-                // Trigger 5-second Skateboard Buff
                 s.skateboardDuration = 5.0;
                 p.isSkateboarding = true;
                 setSkateboardTimer(5.0);
 
                 soundFx.playSkateboard();
-                spawnMoneySparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 12);
+                spawnMoneySparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 8);
                 spawnSkateSparks(p.x, p.y);
-                addFloatingText('🛹 SKATEBOARD POWER! (5s)', p.x, p.y - p.height - 18, '#fbbf24', 14);
+                addFloatingText('🛹 SKATE POWER! (5s)', p.x, p.y - p.height - 18, '#fbbf24', 14);
               } else if (loot.type === 'MAGNET') {
-                // Trigger 5-second Coin Magnet Buff
                 s.magnetDuration = 5.0;
                 p.isMagnetActive = true;
                 setMagnetTimer(5.0);
@@ -1154,35 +1628,49 @@ export default function App() {
                 spawnMagnetParticles(p.x, p.y - p.height / 2);
                 spawnMagnetParticles(loot.x + loot.width / 2, loot.y + loot.height / 2);
                 addFloatingText('🧲 COIN MAGNET! (5s)', p.x, p.y - p.height - 18, '#38bdf8', 14);
-              } else if (loot.type === 'GOLD_COIN') {
-                // Golden Coin collection (Standard Common Loot: +$2 cash, +1 score)
-                s.stolenCash += loot.value;
-                s.score += 1;
-                setStolenCash(s.stolenCash);
-                setScore(Math.floor(s.score));
-
-                soundFx.playCoinPickup();
-                spawnCoinSparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 7);
-                addFloatingText(`+$${loot.value}`, loot.x, loot.y - 12, '#fde047', 12);
-              } else if (loot.type === 'DIAMOND') {
-                // Rare Blue Diamond collection (Tier 3 Legendary: +$50 cash, +25 score)
-                s.stolenCash += loot.value;
-                s.score += 25;
-                setStolenCash(s.stolenCash);
-                setScore(Math.floor(s.score));
-
-                soundFx.playMoneyPickup();
-                spawnCoinSparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 12);
-                addFloatingText(`+$${loot.value} 💎 JACKPOT!`, loot.x, loot.y - 14, '#38bdf8', 14);
-              } else {
-                // Money Bag / Cash Stacks (Tier 2 Rare Loot: +$15-$20 cash, +10 score)
+              } else if (loot.type === 'HEART_COIN') {
                 s.stolenCash += loot.value;
                 s.score += 10;
+                s.totalCoins += 1;
                 setStolenCash(s.stolenCash);
                 setScore(Math.floor(s.score));
+                setTotalCoins(s.totalCoins);
+
+                soundFx.playHeartCoinPickup();
+                spawnHeartSparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 8);
+                addFloatingText(`+$${loot.value} 💖`, loot.x, loot.y - 12, '#fb7185', 13);
+              } else if (loot.type === 'GOLD_COIN') {
+                s.stolenCash += loot.value;
+                s.score += 1;
+                s.totalCoins += 1;
+                setStolenCash(s.stolenCash);
+                setScore(Math.floor(s.score));
+                setTotalCoins(s.totalCoins);
+
+                soundFx.playCoinPickup();
+                spawnCoinSparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 5);
+                addFloatingText(`+$${loot.value}`, loot.x, loot.y - 12, '#fde047', 12);
+              } else if (loot.type === 'DIAMOND') {
+                s.stolenCash += loot.value;
+                s.score += 25;
+                s.totalCoins += 1;
+                setStolenCash(s.stolenCash);
+                setScore(Math.floor(s.score));
+                setTotalCoins(s.totalCoins);
 
                 soundFx.playMoneyPickup();
-                spawnMoneySparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 8);
+                spawnCoinSparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 8);
+                addFloatingText(`+$${loot.value} 💎 JACKPOT!`, loot.x, loot.y - 14, '#38bdf8', 14);
+              } else {
+                s.stolenCash += loot.value;
+                s.score += 10;
+                s.totalCoins += 1;
+                setStolenCash(s.stolenCash);
+                setScore(Math.floor(s.score));
+                setTotalCoins(s.totalCoins);
+
+                soundFx.playMoneyPickup();
+                spawnMoneySparkles(loot.x + loot.width / 2, loot.y + loot.height / 2, 6);
                 addFloatingText(`+$${loot.value} 💰 BIG CASH!`, loot.x, loot.y - 12, '#4ade80', 13);
               }
             }
@@ -1196,9 +1684,8 @@ export default function App() {
 
       // 2. UPDATE GAME OVER / BUSTED COPS TACKLE ANIMATION
       if (s.gameState === 'GAME_OVER') {
-        // Cop smoothly rushes in to handcuff the robber
         if (cop.x < cop.targetX) {
-          cop.x += 4.5;
+          cop.x = Math.min(cop.targetX, cop.x + 4.5 * dtScale);
         } else {
           cop.x = cop.targetX;
         }
@@ -1207,10 +1694,10 @@ export default function App() {
       // 3. UPDATE PARTICLES & FLOATING TEXTS
       for (let i = particlesRef.current.length - 1; i >= 0; i--) {
         const part = particlesRef.current[i];
-        part.x += part.vx;
-        part.y += part.vy;
-        part.life += 1;
-        part.alpha = 1 - part.life / part.maxLife;
+        part.x += part.vx * dtScale;
+        part.y += part.vy * dtScale;
+        part.life += dtScale;
+        part.alpha = Math.max(0, 1 - part.life / part.maxLife);
         if (part.life >= part.maxLife) {
           particlesRef.current.splice(i, 1);
         }
@@ -1218,9 +1705,9 @@ export default function App() {
 
       for (let i = floatingTextsRef.current.length - 1; i >= 0; i--) {
         const txt = floatingTextsRef.current[i];
-        txt.y += txt.vy;
-        txt.life += 1;
-        txt.alpha = 1 - txt.life / txt.maxLife;
+        txt.y += txt.vy * dtScale;
+        txt.life += dtScale;
+        txt.alpha = Math.max(0, 1 - txt.life / txt.maxLife);
         if (txt.life >= txt.maxLife) {
           floatingTextsRef.current.splice(i, 1);
         }
@@ -1229,17 +1716,20 @@ export default function App() {
       // 4. RENDER CANVAS SCENE
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Background Skyline & Stars & Ambient Siren
+      // Background Skyline & Stars & Ambient Siren (Stable 500m milestone tiers)
       CanvasRenderer.drawBackground(
         ctx,
         buildingsFarRef.current,
         buildingsNearRef.current,
         s.groundOffset,
-        s.sirenTimer
+        s.sirenTimer,
+        s.isBonusPhase,
+        s.bonusTransition,
+        s.score
       );
 
       // City Asphalt Road & Curb
-      CanvasRenderer.drawRoad(ctx, s.groundOffset, s.sirenTimer);
+      CanvasRenderer.drawRoad(ctx, s.groundOffset, s.sirenTimer, s.isBonusPhase);
 
       // Loot Items
       for (const loot of lootItemsRef.current) {
@@ -1252,7 +1742,7 @@ export default function App() {
       }
 
       // Police Officer Chasing
-      CanvasRenderer.drawPoliceOfficer(ctx, cop);
+      CanvasRenderer.drawPoliceOfficer(ctx, cop, s.isBonusPhase);
 
       // Robber (Player)
       CanvasRenderer.drawPlayer(ctx, p);
@@ -1268,24 +1758,24 @@ export default function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Touch Swipe Gesture Detection for Canvas Stage
+  // Touch & Pointer Gesture Detection for Canvas Stage
   const touchStartPos = useRef<{ x: number; y: number; time: number } | null>(null);
   const touchDuckingActive = useRef<boolean>(false);
 
-  const handleCanvasTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length > 0) {
-      touchStartPos.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-        time: Date.now(),
-      };
-    }
+  const handleCanvasPointerDown = (e: React.PointerEvent) => {
+    if (e.target !== canvasRef.current && (e.target as HTMLElement).id !== 'game-viewport-container') return;
+    touchStartPos.current = {
+      x: e.clientX,
+      y: e.clientY,
+      time: performance.now(),
+    };
+    handleJump();
   };
 
-  const handleCanvasTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartPos.current || e.touches.length === 0) return;
-    const dy = e.touches[0].clientY - touchStartPos.current.y;
-    const dx = e.touches[0].clientX - touchStartPos.current.x;
+  const handleCanvasPointerMove = (e: React.PointerEvent) => {
+    if (!touchStartPos.current) return;
+    const dy = e.clientY - touchStartPos.current.y;
+    const dx = e.clientX - touchStartPos.current.x;
 
     // Swipe Down -> Duck
     if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
@@ -1294,44 +1784,36 @@ export default function App() {
     }
   };
 
-  const handleCanvasTouchEnd = (e: React.TouchEvent) => {
+  const handleCanvasPointerUp = (e: React.PointerEvent) => {
     if (touchDuckingActive.current) {
       touchDuckingActive.current = false;
       handleDuckEnd();
       touchStartPos.current = null;
-      return;
     }
-
-    if (touchStartPos.current) {
-      const dt = Date.now() - touchStartPos.current.time;
-      // Quick tap -> Jump
-      if (dt < 300) {
-        handleJump();
-      }
-    }
+    handleJumpRelease();
     touchStartPos.current = null;
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-[#0b101e] to-slate-950 text-slate-100 flex flex-col items-center justify-start p-3 sm:p-6 select-none font-['Prompt',sans-serif]">
+    <main className="min-h-screen w-full max-w-full overflow-x-hidden bg-gradient-to-b from-slate-950 via-[#0b101e] to-slate-950 text-slate-100 flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 select-none font-['Prompt',sans-serif]">
       {/* Top Header Banner */}
-      <header className="w-full max-w-4xl flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg border border-amber-400/40 text-xl">
+      <header className="w-full max-w-4xl flex items-center justify-between mb-2 sm:mb-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg border border-amber-400/40 text-lg sm:text-xl shrink-0">
             💰
           </div>
           <div>
-            <h1 className="text-base sm:text-xl font-bold font-['Press_Start_2P'] text-amber-400 tracking-tight flex items-center gap-2">
+            <h1 className="text-sm sm:text-lg md:text-xl font-bold font-['Press_Start_2P'] text-amber-400 tracking-tight flex items-center gap-2">
               COPS & ROBBERS
             </h1>
-            <p className="text-xs text-slate-400">เกมโจรวิ่งหนีตำรวจบนถนนในเมือง (City Chase)</p>
+            <p className="text-[11px] sm:text-xs text-slate-400">เกมโจรวิ่งหนีตำรวจบนถนนในเมือง (City Chase)</p>
           </div>
         </div>
 
         {/* Status Mode Badge */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <span
-            className={`text-[11px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 ${
+            className={`text-[10px] sm:text-[11px] font-bold px-2 sm:px-2.5 py-1 rounded-full border flex items-center gap-1 ${
               difficulty === 'FAST'
                 ? 'bg-red-500/20 border-red-500/50 text-red-300'
                 : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
@@ -1344,12 +1826,14 @@ export default function App() {
       </header>
 
       {/* Main Game Container */}
-      <div className="w-full max-w-4xl flex flex-col items-center gap-3">
+      <div className="w-full max-w-4xl flex flex-col items-center gap-2 sm:gap-3 shrink-0">
         {/* Retro HUD Header */}
         <RetroHUD
           score={score}
           highScore={highScore}
           stolenCash={stolenCash}
+          totalCoins={totalCoins}
+          bonusTimer={bonusTimer}
           speed={currentSpeed}
           difficulty={difficulty}
           gameState={gameState}
@@ -1364,10 +1848,10 @@ export default function App() {
         {/* Canvas Game Stage with Overlay UI */}
         <div
           id="game-viewport-container"
-          onClick={handleJump}
-          onTouchStart={handleCanvasTouchStart}
-          onTouchMove={handleCanvasTouchMove}
-          onTouchEnd={handleCanvasTouchEnd}
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerUp}
           className={`relative w-full ${
             gameState === 'IDLE'
               ? 'min-h-[580px] sm:min-h-[500px] md:min-h-[460px] md:aspect-[2/1]'
@@ -1485,8 +1969,54 @@ export default function App() {
             </div>
           )}
 
+          {/* FLOATING ACTIVE POWER-UPS HUD (Zero Layout Shift, Always Floats Elegantly On Canvas) */}
+          {gameState === 'PLAYING' && (magnetTimer > 0 || skateboardTimer > 0) && (
+            <div className="absolute top-2 right-2 pointer-events-none z-20 flex flex-col items-end gap-1.5 animate-fadeIn">
+              {magnetTimer > 0 && (
+                <div className="bg-slate-950/85 border border-cyan-400/80 px-2.5 py-1 rounded-full shadow-lg shadow-cyan-950/60 backdrop-blur-xs flex items-center gap-1.5 text-cyan-300">
+                  <span className="text-sm animate-bounce">🧲</span>
+                  <span className="text-[9px] sm:text-[11px] font-bold font-['Press_Start_2P'] text-cyan-200">
+                    MAGNET {magnetTimer.toFixed(1)}s
+                  </span>
+                  <span className="bg-cyan-500/20 text-cyan-300 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-cyan-400/40">
+                    ดูดเหรียญ
+                  </span>
+                </div>
+              )}
+              {skateboardTimer > 0 && (
+                <div className="bg-slate-950/85 border border-amber-400/80 px-2.5 py-1 rounded-full shadow-lg shadow-amber-950/60 backdrop-blur-xs flex items-center gap-1.5 text-amber-300">
+                  <span className="text-sm animate-bounce">🛹</span>
+                  <span className="text-[9px] sm:text-[11px] font-bold font-['Press_Start_2P'] text-amber-200">
+                    SKATE {skateboardTimer.toFixed(1)}s
+                  </span>
+                  <span className="bg-amber-500/20 text-amber-300 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-400/40">
+                    1.5x SPD
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* BONUS PHASE / MEGA COIN MOUNTAIN BANNER OVERLAY (Smooth floating absolute badge, zero layout shift) */}
+          {gameState === 'PLAYING' && isBonusPhase && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none z-20 flex flex-col items-center gap-1 transition-opacity duration-300">
+              <div className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 px-4 py-1 rounded-full border-2 border-yellow-100 shadow-xl shadow-yellow-500/50 flex items-center gap-2">
+                <span className="text-base animate-bounce">🏔️</span>
+                <span className="text-xs sm:text-sm font-bold font-['Press_Start_2P'] tracking-wide">
+                  5000M MEGA COIN MOUNTAIN!
+                </span>
+                <span className="bg-slate-950 text-yellow-300 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-mono font-bold">
+                  {bonusTimer.toFixed(1)}s
+                </span>
+              </div>
+              <span className="text-[10px] sm:text-xs font-bold font-mono text-yellow-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] bg-black/60 px-2.5 py-0.5 rounded-md backdrop-blur-xs border border-yellow-500/30">
+                ✨ ไต่ยอดเขาเหรียญทอง & เก็บแม่เหล็กดูดยกภูเขา! ✨
+              </span>
+            </div>
+          )}
+
           {/* Quick in-game hint badge */}
-          {gameState === 'PLAYING' && (
+          {gameState === 'PLAYING' && !isBonusPhase && (
             <div className="absolute top-2 left-2 pointer-events-none z-10 flex items-center gap-2">
               <span className="text-[10px] sm:text-xs font-mono bg-black/60 backdrop-blur-xs text-white/95 px-2.5 py-1 rounded-md border border-white/20 flex items-center gap-1.5 shadow">
                 <Siren className="w-3 h-3 text-red-400 animate-pulse" />
@@ -1498,24 +2028,27 @@ export default function App() {
           )}
 
           {/* ON-SCREEN MOBILE / VIRTUAL CONTROLS (Cookie Run Style: Left = JUMP, Right = SLIDE, Generous Thumb Offset & Big Circular Tactile Buttons) */}
-          <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-30 select-none touch-none pointer-events-auto">
+          <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 md:bottom-8 md:left-8 z-30 select-none touch-none pointer-events-auto shrink-0">
             <button
               id="onscreen-jump-btn"
               type="button"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                handleJump();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleJump();
-              }}
-              onTouchStart={(e) => {
+              onPointerDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 handleJump();
               }}
-              className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full bg-emerald-950/45 hover:bg-emerald-900/65 active:bg-emerald-700/85 border-[2px] border-emerald-400/50 hover:border-emerald-300 active:border-emerald-100 shadow-lg shadow-emerald-950/40 backdrop-blur-xs flex flex-col items-center justify-center gap-0.5 text-emerald-300 active:text-white active:scale-90 active:shadow-inner transition-transform duration-75 select-none touch-none cursor-pointer group ring-2 ring-emerald-500/20"
+              onPointerUp={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleJumpRelease();
+              }}
+              onPointerLeave={() => {
+                handleJumpRelease();
+              }}
+              onPointerCancel={() => {
+                handleJumpRelease();
+              }}
+              className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full bg-emerald-950/45 hover:bg-emerald-900/65 active:bg-emerald-700/85 border-[2px] border-emerald-400/50 hover:border-emerald-300 active:border-emerald-100 shadow-lg shadow-emerald-950/40 backdrop-blur-xs flex flex-col items-center justify-center gap-0.5 text-emerald-300 active:text-white active:scale-90 active:shadow-inner transition-transform duration-75 select-none touch-none cursor-pointer group ring-2 ring-emerald-500/20 shrink-0"
               title="กระโดดข้ามสิ่งกีดขวาง (JUMP / 2x JUMP)"
             >
               <ChevronsUp className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-300 group-hover:text-emerald-100 group-active:scale-110 transition-transform" />
@@ -1528,37 +2061,27 @@ export default function App() {
             </button>
           </div>
 
-          <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 md:bottom-8 md:right-8 z-30 select-none touch-none pointer-events-auto">
+          <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 md:bottom-8 md:right-8 z-30 select-none touch-none pointer-events-auto shrink-0">
             <button
               id="onscreen-slide-btn"
               type="button"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                handleDuckStart();
-              }}
-              onMouseUp={(e) => {
-                e.stopPropagation();
-                handleDuckEnd();
-              }}
-              onMouseLeave={() => {
-                handleDuckEnd();
-              }}
-              onTouchStart={(e) => {
+              onPointerDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 handleDuckStart();
               }}
-              onTouchEnd={(e) => {
+              onPointerUp={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 handleDuckEnd();
               }}
-              onTouchCancel={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
+              onPointerLeave={() => {
                 handleDuckEnd();
               }}
-              className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full bg-cyan-950/45 hover:bg-cyan-900/65 active:bg-cyan-700/85 border-[2px] border-cyan-400/50 hover:border-cyan-300 active:border-cyan-100 shadow-lg shadow-cyan-950/40 backdrop-blur-xs flex flex-col items-center justify-center gap-0.5 text-cyan-300 active:text-white active:scale-90 active:shadow-inner transition-transform duration-75 select-none touch-none cursor-pointer group ring-2 ring-cyan-500/20"
+              onPointerCancel={() => {
+                handleDuckEnd();
+              }}
+              className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full bg-cyan-950/45 hover:bg-cyan-900/65 active:bg-cyan-700/85 border-[2px] border-cyan-400/50 hover:border-cyan-300 active:border-cyan-100 shadow-lg shadow-cyan-950/40 backdrop-blur-xs flex flex-col items-center justify-center gap-0.5 text-cyan-300 active:text-white active:scale-90 active:shadow-inner transition-transform duration-75 select-none touch-none cursor-pointer group ring-2 ring-cyan-500/20 shrink-0"
               title="ก้มมุดสไลด์หลบสิ่งกีดขวางระดับสูง (SLIDE)"
             >
               <ChevronsDown className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-300 group-hover:text-cyan-100 group-active:scale-110 transition-transform" />
@@ -1572,18 +2095,30 @@ export default function App() {
           </div>
         </div>
 
-        {/* Dual Responsive Action Buttons Deck (Cookie Run Order: Left JUMP & Right SLIDE) */}
-        <div className="w-full grid grid-cols-2 gap-3">
+        {/* Dual Responsive Action Buttons Deck (Completely Decoupled, Permanent 100% Static Container) */}
+        <div
+          id="game-action-controls-deck"
+          className="w-full grid grid-cols-2 gap-2.5 sm:gap-3 shrink-0 select-none touch-none pointer-events-auto"
+        >
           {/* JUMP BUTTON */}
           <button
             id="mobile-jump-touch-btn"
             type="button"
-            onClick={handleJump}
-            onTouchStart={(e) => {
+            onPointerDown={(e) => {
               e.preventDefault();
               handleJump();
             }}
-            className="py-3.5 sm:py-4 px-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-400 active:from-emerald-700 active:to-emerald-700 active:scale-96 text-slate-950 font-extrabold font-['Press_Start_2P'] text-[10px] sm:text-xs rounded-2xl shadow-xl shadow-emerald-950/40 border-2 border-emerald-300 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none touch-none"
+            onPointerUp={(e) => {
+              e.preventDefault();
+              handleJumpRelease();
+            }}
+            onPointerLeave={() => {
+              handleJumpRelease();
+            }}
+            onPointerCancel={() => {
+              handleJumpRelease();
+            }}
+            className="py-3 sm:py-3.5 px-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-400 active:from-emerald-700 active:to-emerald-700 active:scale-96 text-slate-950 font-extrabold font-['Press_Start_2P'] text-[10px] sm:text-xs rounded-2xl shadow-xl shadow-emerald-950/40 border-2 border-emerald-300 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none touch-none shrink-0"
           >
             <div className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-950">
               <ArrowUp className="w-4 h-4 text-slate-950" />
@@ -1598,22 +2133,21 @@ export default function App() {
           <button
             id="mobile-duck-touch-btn"
             type="button"
-            onMouseDown={handleDuckStart}
-            onMouseUp={handleDuckEnd}
-            onMouseLeave={handleDuckEnd}
-            onTouchStart={(e) => {
+            onPointerDown={(e) => {
               e.preventDefault();
               handleDuckStart();
             }}
-            onTouchEnd={(e) => {
+            onPointerUp={(e) => {
               e.preventDefault();
               handleDuckEnd();
             }}
-            onTouchCancel={(e) => {
-              e.preventDefault();
+            onPointerLeave={() => {
               handleDuckEnd();
             }}
-            className="py-3.5 sm:py-4 px-3 bg-gradient-to-r from-cyan-900 via-cyan-800 to-cyan-900 hover:from-cyan-800 hover:to-cyan-700 active:from-cyan-950 active:to-cyan-950 active:scale-96 text-cyan-100 font-extrabold font-['Press_Start_2P'] text-[10px] sm:text-xs rounded-2xl shadow-xl shadow-cyan-950/40 border-2 border-cyan-400/80 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none touch-none"
+            onPointerCancel={() => {
+              handleDuckEnd();
+            }}
+            className="py-3 sm:py-3.5 px-3 bg-gradient-to-r from-cyan-900 via-cyan-800 to-cyan-900 hover:from-cyan-800 hover:to-cyan-700 active:from-cyan-950 active:to-cyan-950 active:scale-96 text-cyan-100 font-extrabold font-['Press_Start_2P'] text-[10px] sm:text-xs rounded-2xl shadow-xl shadow-cyan-950/40 border-2 border-cyan-400/80 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none touch-none shrink-0"
           >
             <div className="flex items-center gap-1.5 text-xs sm:text-sm text-cyan-300">
               <ArrowDown className="w-4 h-4 text-cyan-300" />

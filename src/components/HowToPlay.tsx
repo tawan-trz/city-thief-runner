@@ -96,19 +96,16 @@ export const HowToPlay: React.FC = () => {
                 <span className="text-rose-400 font-bold">ซุ้มนั่งร้านเหล็กยาว:</span> <b>บังคับสไลด์มุด 100% (ห้ามกระโดด!)</b>
               </li>
               <li>
-                <span className="text-cyan-300 font-bold">🧲 แม่เหล็กดูดเงิน (5s):</span> <b>ดูดเหรียญและอัญมณีใกล้เคียงอัตโนมัติ!</b>
+                <span className="text-amber-300 font-bold">🏔️ ภูเขาเหรียญทองยักษ์ (ทุก 5000m):</span> <b>ช่วงโบนัสพิเศษ 7 วิ ไม่มีตำรวจ/กับดัก เก็บพีระมิดเหรียญ 5 ชั้น & ยอดแม่เหล็กดูดยกภูเขา!</b>
               </li>
               <li>
                 <span className="text-yellow-300 font-bold">🛹 สเก็ตบอร์ด (5s):</span> <b>วิ่งเร็ว 1.5x + อมตะชนทะลุสิ่งกีดขวาง!</b>
               </li>
               <li>
-                <span className="text-amber-300">เหรียญทอง (Common):</span> <b>+$2</b> (ช่วยนำทางกระโดด/สไลด์)
+                <span className="text-cyan-300 font-bold">🧲 แม่เหล็กดูดเงิน (5s):</span> <b>ดูดเหรียญและอัญมณีใกล้เคียงอัตโนมัติ!</b>
               </li>
               <li>
-                <span className="text-emerald-400">ถุงเงิน (Rare):</span> <b>+$15-$20</b> (+10 คะแนน)
-              </li>
-              <li>
-                <span className="text-cyan-400 font-bold">เพชรสีฟ้า (Legendary):</span> <b>+$50</b> (+25 คะแนน!)
+                <span className="text-amber-300">เหรียญทอง / ถุงเงิน / เพชร:</span> <b>+$2-$100</b> (มีทั้งเหรียญล่อกับดัก & เส้นทางปลอดภัย)
               </li>
             </ul>
           </div>

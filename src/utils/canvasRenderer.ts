@@ -18,114 +18,227 @@ export const GROUND_HEIGHT = 80;
  * 100% Canvas Pixel Art - Zero External Assets
  */
 export class CanvasRenderer {
-  // Draw Night Sky, City Skyline, Street, and Police Siren Parallax
+  // Draw Night Sky, City Skyline, Street, and Police Siren Parallax (or Vibrant Celestial Dream Sky during Bonus Phase)
   static drawBackground(
     ctx: CanvasRenderingContext2D,
     buildingsFar: CityBuilding[],
     buildingsNear: CityBuilding[],
     groundOffset: number,
-    sirenTimer: number
+    sirenTimer: number,
+    isBonusPhase = false,
+    bonusTransition = 0,
+    score = 0
   ) {
-    // 1. Midnight City Twilight Gradient
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad.addColorStop(0, '#070b14');
-    skyGrad.addColorStop(0.5, '#0f172a');
-    skyGrad.addColorStop(1, '#1e1b4b');
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (bonusTransition > 0) {
+      // 1. Radiant Golden Dawn & Mountain Horizon (Golden Mountain Bonus Phase)
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad.addColorStop(0, '#f59e0b'); // Warm Amber Gold
+      skyGrad.addColorStop(0.35, '#fbbf24'); // Brilliant Sunshine Gold
+      skyGrad.addColorStop(0.7, '#fef08a'); // Soft Warm Buttercream
+      skyGrad.addColorStop(1, '#f97316'); // Radiant Orange Horizon
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // 2. Crescent / Full Moon with soft halo
-    ctx.fillStyle = 'rgba(254, 240, 138, 0.15)';
-    ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH - 110, 55, 36, 0, Math.PI * 2);
-    ctx.fill();
+      // Distant Golden Mountain Silhouettes in Horizon
+      const mtnOffset = (groundOffset * 0.08) % 400;
+      ctx.fillStyle = '#b45309'; // Rich Amber Mountain Silhouette
+      ctx.beginPath();
+      ctx.moveTo(-100, GROUND_Y);
+      for (let mx = -mtnOffset - 100; mx < CANVAS_WIDTH + 300; mx += 260) {
+        ctx.lineTo(mx + 60, GROUND_Y - 110);
+        ctx.lineTo(mx + 130, GROUND_Y - 60);
+        ctx.lineTo(mx + 190, GROUND_Y - 135);
+        ctx.lineTo(mx + 260, GROUND_Y);
+      }
+      ctx.lineTo(CANVAS_WIDTH + 200, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
 
-    ctx.fillStyle = '#fef08a';
-    ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH - 110, 55, 22, 0, Math.PI * 2);
-    ctx.fill();
+      // Mountain Peak Snow / Gold Highlights
+      ctx.fillStyle = '#fef08a';
+      for (let mx = -mtnOffset - 100; mx < CANVAS_WIDTH + 300; mx += 260) {
+        // Peak 1 snow
+        ctx.beginPath();
+        ctx.moveTo(mx + 60, GROUND_Y - 110);
+        ctx.lineTo(mx + 48, GROUND_Y - 90);
+        ctx.lineTo(mx + 72, GROUND_Y - 90);
+        ctx.closePath();
+        ctx.fill();
 
-    // Subtle moon craters
-    ctx.fillStyle = '#fde047';
-    ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH - 116, 50, 4, 0, Math.PI * 2);
-    ctx.arc(CANVAS_WIDTH - 105, 62, 5, 0, Math.PI * 2);
-    ctx.fill();
+        // Peak 2 snow
+        ctx.beginPath();
+        ctx.moveTo(mx + 190, GROUND_Y - 135);
+        ctx.lineTo(mx + 175, GROUND_Y - 110);
+        ctx.lineTo(mx + 205, GROUND_Y - 110);
+        ctx.closePath();
+        ctx.fill();
+      }
 
-    // 3. Stars in the night sky
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    const starCoords = [
-      [60, 30], [140, 70], [220, 25], [340, 60],
-      [430, 35], [520, 80], [610, 25], [710, 45]
-    ];
-    for (const [sx, sy] of starCoords) {
-      ctx.fillRect(sx, sy, 2, 2);
+      // Giant Glowing Golden Sun
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.4)';
+      ctx.beginPath();
+      ctx.arc(CANVAS_WIDTH - 120, 52, 54, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(CANVAS_WIDTH - 120, 52, 28, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rotating Sunshine Crown Rays
+      ctx.fillStyle = '#fde047';
+      const sunRays = 10;
+      for (let i = 0; i < sunRays; i++) {
+        const ang = (i * Math.PI * 2) / sunRays + sirenTimer * 0.6;
+        const rx = CANVAS_WIDTH - 120 + Math.cos(ang) * 42;
+        const ry = 52 + Math.sin(ang) * 42;
+        ctx.fillRect(rx - 2.5, ry - 2.5, 5, 5);
+      }
+
+      // Parallax City Skyline Layer 1 (Far - Golden Amber Silhouette)
+      for (const b of buildingsFar) {
+        this.drawBuilding(ctx, b, groundOffset * 0.15, '#78350f', '#d97706', false, true);
+      }
+
+      // Parallax City Skyline Layer 2 (Near - Warm Honey Gold with glittering windows)
+      for (const b of buildingsNear) {
+        this.drawBuilding(ctx, b, groundOffset * 0.35, '#451a03', '#f59e0b', true, true);
+      }
+
+      // Floating celebratory golden stars and sparkling glints across the sky
+      const bonusSparkles = [
+        [60, 20, '#ffffff'], [160, 35, '#fde047'], [280, 18, '#fbbf24'],
+        [420, 40, '#fef08a'], [560, 24, '#ffffff'], [680, 32, '#fde047']
+      ];
+      for (const [sx, sy, col] of bonusSparkles) {
+        ctx.fillStyle = col as string;
+        const pulse = (Math.sin(sirenTimer * 8 + (sx as number)) + 1) / 2;
+        ctx.fillRect((sx as number) - 1.5, (sy as number) - 1.5, 3 + pulse * 2.5, 3 + pulse * 2.5);
+      }
+    } else {
+      // Stable Normal Mode Background: Subtle palette shift strictly every 500m milestone
+      const tier = Math.floor(score / 500) % 3;
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      let farBuildingBase = '#111827';
+      let farBuildingEdge = '#1f2937';
+      let nearBuildingBase = '#1e293b';
+      let nearBuildingEdge = '#334155';
+
+      if (tier === 0) {
+        // Tier 0 (0-499m): Classic Midnight Blue City
+        skyGrad.addColorStop(0, '#070b14');
+        skyGrad.addColorStop(0.5, '#0f172a');
+        skyGrad.addColorStop(1, '#1e1b4b');
+      } else if (tier === 1) {
+        // Tier 1 (500-999m): Deep Neon Violet Skyline
+        skyGrad.addColorStop(0, '#0d071b');
+        skyGrad.addColorStop(0.5, '#1e0e38');
+        skyGrad.addColorStop(1, '#31104f');
+        farBuildingBase = '#190b2e';
+        farBuildingEdge = '#2e1065';
+        nearBuildingBase = '#281347';
+        nearBuildingEdge = '#4c1d95';
+      } else {
+        // Tier 2 (1000m+): Deep Teal Cyber Horizon
+        skyGrad.addColorStop(0, '#041619');
+        skyGrad.addColorStop(0.5, '#082b2f');
+        skyGrad.addColorStop(1, '#0e3f43');
+        farBuildingBase = '#022c22';
+        farBuildingEdge = '#064e3b';
+        nearBuildingBase = '#063f38';
+        nearBuildingEdge = '#0d9488';
+      }
+
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+      // 2. Crescent / Full Moon with soft halo
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.15)';
+      ctx.beginPath();
+      ctx.arc(CANVAS_WIDTH - 110, 55, 36, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(CANVAS_WIDTH - 110, 55, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle moon craters
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(CANVAS_WIDTH - 116, 50, 4, 0, Math.PI * 2);
+      ctx.arc(CANVAS_WIDTH - 105, 62, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Stars in the night sky
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      const starCoords = [
+        [60, 30], [140, 70], [220, 25], [340, 60],
+        [430, 35], [520, 80], [610, 25], [710, 45]
+      ];
+      for (const [sx, sy] of starCoords) {
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+
+      // 4. Parallax City Skyline Layer 1 (Far)
+      for (const b of buildingsFar) {
+        this.drawBuilding(ctx, b, groundOffset * 0.15, farBuildingBase, farBuildingEdge, false);
+      }
+
+      // 5. Parallax City Skyline Layer 2 (Near)
+      for (const b of buildingsNear) {
+        this.drawBuilding(ctx, b, groundOffset * 0.35, nearBuildingBase, nearBuildingEdge, true);
+      }
+
+      // 6. Flashing Red & Blue Police Siren Ambient Light (Optimized direct alpha overlay)
+      const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2; // 0 to 1
+      const redIntensity = sirenPhase * 0.14;
+      const blueIntensity = (1 - sirenPhase) * 0.14;
+
+      if (redIntensity > 0.01) {
+        ctx.fillStyle = `rgba(239, 68, 68, ${redIntensity})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH * 0.45, 120);
+      }
+      if (blueIntensity > 0.01) {
+        ctx.fillStyle = `rgba(59, 130, 246, ${blueIntensity})`;
+        ctx.fillRect(CANVAS_WIDTH * 0.55, 0, CANVAS_WIDTH * 0.45, 120);
+      }
     }
-
-    // 4. Parallax City Skyline Layer 1 (Far - Dark Blue / Purple silhouettes)
-    for (const b of buildingsFar) {
-      this.drawBuilding(ctx, b, groundOffset * 0.15, '#111827', '#1f2937', false);
-    }
-
-    // 5. Parallax City Skyline Layer 2 (Near - Detailed Skyscrapers with glowing windows)
-    for (const b of buildingsNear) {
-      this.drawBuilding(ctx, b, groundOffset * 0.35, '#1e293b', '#334155', true);
-    }
-
-    // 6. Flashing Red & Blue Police Siren Ambient Light
-    const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2; // 0 to 1
-    const redIntensity = sirenPhase * 0.16;
-    const blueIntensity = (1 - sirenPhase) * 0.16;
-
-    // Top Red/Blue flare
-    const redGlow = ctx.createRadialGradient(80, 50, 10, 80, 50, 300);
-    redGlow.addColorStop(0, `rgba(239, 68, 68, ${redIntensity * 1.5})`);
-    redGlow.addColorStop(1, 'rgba(239, 68, 68, 0)');
-    ctx.fillStyle = redGlow;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    const blueGlow = ctx.createRadialGradient(CANVAS_WIDTH - 80, 50, 10, CANVAS_WIDTH - 80, 50, 300);
-    blueGlow.addColorStop(0, `rgba(59, 130, 246, ${blueIntensity * 1.5})`);
-    blueGlow.addColorStop(1, 'rgba(59, 130, 246, 0)');
-    ctx.fillStyle = blueGlow;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
 
-  // Draw Building Silhouette with Windows
+  // Draw Building Silhouette with Windows (High-performance direct offset, avoiding save/restore overhead)
   private static drawBuilding(
     ctx: CanvasRenderingContext2D,
     b: CityBuilding,
     scrollOffset: number,
     baseColor: string,
     edgeColor: string,
-    drawWindows: boolean
+    drawWindows: boolean,
+    isBonus = false
   ) {
     const totalW = CANVAS_WIDTH + 300;
     const drawX = ((b.x - scrollOffset) % totalW + totalW) % totalW - 150;
     const drawY = GROUND_Y - b.height;
 
-    ctx.save();
-    ctx.translate(drawX, drawY);
-
     // Building body
     ctx.fillStyle = baseColor;
-    ctx.fillRect(0, 0, b.width, b.height);
+    ctx.fillRect(drawX, drawY, b.width, b.height);
 
     // Building left edge highlight
     ctx.fillStyle = edgeColor;
-    ctx.fillRect(0, 0, 3, b.height);
-    ctx.fillRect(0, 0, b.width, 3);
+    ctx.fillRect(drawX, drawY, 3, b.height);
+    ctx.fillRect(drawX, drawY, b.width, 3);
 
     // Rooftop Antenna with blinking beacon
     if (b.hasAntenna) {
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(b.width / 2 - 1, -22, 2, 22);
-      ctx.fillRect(b.width / 2 - 4, -12, 8, 2);
+      ctx.fillStyle = isBonus ? '#f472b6' : '#64748b';
+      ctx.fillRect(drawX + b.width / 2 - 1, drawY - 22, 2, 22);
+      ctx.fillRect(drawX + b.width / 2 - 4, drawY - 12, 8, 2);
 
-      // Red blinking beacon at top
-      ctx.fillStyle = '#ef4444';
+      // Blinking beacon at top
+      ctx.fillStyle = isBonus ? '#fde047' : '#ef4444';
       ctx.beginPath();
-      ctx.arc(b.width / 2, -23, 2.5, 0, Math.PI * 2);
+      ctx.arc(drawX + b.width / 2, drawY - 23, 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -139,70 +252,109 @@ export class CanvasRenderer {
       for (let r = 0; r < b.windowRows; r++) {
         for (let c = 0; c < b.windowCols; c++) {
           if (b.windows[r] && b.windows[r][c]) {
-            const wx = padX + c * (winW + padX);
-            const wy = padY + r * (winH + padY);
+            const wx = drawX + padX + c * (winW + padX);
+            const wy = drawY + padY + r * (winH + padY);
 
-            // Lit window color (Warm yellow or cool cyan)
-            ctx.fillStyle = (r + c) % 3 === 0 ? '#38bdf8' : '#fef08a';
+            // Lit window color (Warm yellow or cool cyan or bonus pink/gold)
+            ctx.fillStyle = isBonus
+              ? (r + c) % 2 === 0 ? '#fef08a' : '#f472b6'
+              : (r + c) % 3 === 0 ? '#38bdf8' : '#fef08a';
             ctx.fillRect(wx, wy, winW, winH);
           }
         }
       }
     }
-
-    ctx.restore();
   }
 
-  // Draw City Asphalt Road & Curbs
-  static drawRoad(ctx: CanvasRenderingContext2D, groundOffset: number, sirenTimer: number) {
+  // Draw City Asphalt Road & Curbs (or Glowing Celestial Road during Bonus Phase)
+  static drawRoad(ctx: CanvasRenderingContext2D, groundOffset: number, sirenTimer: number, isBonusPhase = false) {
     const y = GROUND_Y;
     const h = GROUND_HEIGHT;
 
-    // 1. Concrete sidewalk / curb
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(0, y, CANVAS_WIDTH, 10);
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+    if (isBonusPhase) {
+      // 1. Golden Highway Sidewalk / Glowing Amber Curb
+      ctx.fillStyle = '#78350f'; // Deep Amber Brown
+      ctx.fillRect(0, y, CANVAS_WIDTH, 10);
+      ctx.fillStyle = '#fde047'; // Radiant Gold edge
+      ctx.fillRect(0, y, CANVAS_WIDTH, 2);
 
-    // Curb edge repeating tiles
-    const curbTile = 32;
-    const curbOff = groundOffset % curbTile;
-    ctx.fillStyle = '#1e293b';
-    for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
-      ctx.fillRect(x, y, 2, 10);
-    }
+      const curbTile = 32;
+      const curbOff = groundOffset % curbTile;
+      ctx.fillStyle = '#b45309';
+      for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
+        ctx.fillRect(x, y, 2, 10);
+      }
 
-    // 2. Dark Asphalt Road
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+      // 2. Golden Highway Asphalt
+      ctx.fillStyle = '#451a03'; // Warm Mahogany / Golden Asphalt
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
 
-    // Road Texture & Asphalt specks
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, y + 10, CANVAS_WIDTH, 2);
+      // Glowing Double Gold Highway Stripes
+      const dashLength = 36;
+      const gapLength = 28;
+      const totalDash = dashLength + gapLength;
+      const dashOffset = groundOffset % totalDash;
 
-    // 3. Yellow Dashed Center Line
-    const dashLength = 36;
-    const gapLength = 28;
-    const totalDash = dashLength + gapLength;
-    const dashOffset = groundOffset % totalDash;
+      ctx.fillStyle = '#fef08a'; // Radiant Gold
+      const lineY = y + 42;
+      for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
+        ctx.fillRect(x, lineY, dashLength, 5);
+        ctx.fillStyle = '#d97706'; // Amber shadow under stripe
+        ctx.fillRect(x, lineY + 4, dashLength, 1.5);
+        ctx.fillStyle = '#fef08a';
+      }
 
-    ctx.fillStyle = '#facc15';
-    const lineY = y + 42;
-    for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
-      ctx.fillRect(x, lineY, dashLength, 5);
-      // Subtle shadow under stripe
-      ctx.fillStyle = '#ca8a04';
-      ctx.fillRect(x, lineY + 4, dashLength, 1);
+      // Magical road golden glow wave
+      const wave = (Math.sin(sirenTimer * 8) + 1) / 2;
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.12 + wave * 0.08})`;
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+    } else {
+      // 1. Concrete sidewalk / curb
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(0, y, CANVAS_WIDTH, 10);
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+
+      // Curb edge repeating tiles
+      const curbTile = 32;
+      const curbOff = groundOffset % curbTile;
+      ctx.fillStyle = '#1e293b';
+      for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
+        ctx.fillRect(x, y, 2, 10);
+      }
+
+      // 2. Dark Asphalt Road
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+
+      // Road Texture & Asphalt specks
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, 2);
+
+      // 3. Yellow Dashed Center Line
+      const dashLength = 36;
+      const gapLength = 28;
+      const totalDash = dashLength + gapLength;
+      const dashOffset = groundOffset % totalDash;
+
       ctx.fillStyle = '#facc15';
+      const lineY = y + 42;
+      for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
+        ctx.fillRect(x, lineY, dashLength, 5);
+        // Subtle shadow under stripe
+        ctx.fillStyle = '#ca8a04';
+        ctx.fillRect(x, lineY + 4, dashLength, 1);
+        ctx.fillStyle = '#facc15';
+      }
+
+      // 4. Siren reflection on the wet asphalt
+      const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2;
+      ctx.fillStyle = `rgba(239, 68, 68, ${sirenPhase * 0.08})`;
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+
+      ctx.fillStyle = `rgba(59, 130, 246, ${(1 - sirenPhase) * 0.08})`;
+      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
     }
-
-    // 4. Siren reflection on the wet asphalt
-    const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2;
-    ctx.fillStyle = `rgba(239, 68, 68, ${sirenPhase * 0.08})`;
-    ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
-
-    ctx.fillStyle = `rgba(59, 130, 246, ${(1 - sirenPhase) * 0.08})`;
-    ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
   }
 
   // Draw Player: The Robber / Thief (โจรวิ่งหนี)
@@ -717,7 +869,7 @@ export class CanvasRenderer {
   }
 
   // Draw Police Officer Chasing (ตำรวจวิ่งไล่ตาม)
-  static drawPoliceOfficer(ctx: CanvasRenderingContext2D, cop: PoliceOfficer) {
+  static drawPoliceOfficer(ctx: CanvasRenderingContext2D, cop: PoliceOfficer, isBonusPhase = false) {
     ctx.save();
     ctx.translate(cop.x, cop.y);
 
@@ -728,6 +880,16 @@ export class CanvasRenderer {
     const scale = cW / 34;
 
     ctx.scale(scale, scale);
+
+    // If Bonus Phase, draw cute floating sweatdrop / peace hearts above police head!
+    if (isBonusPhase) {
+      const heartBob = Math.sin(cop.runTimer * 0.4) * 4;
+      ctx.fillStyle = '#f43f5e';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText('♥', px + 14, py - 6 + heartBob);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('💦', px + 28, py - 4);
+    }
 
     // 1. Navy Police Peaked Cap
     ctx.fillStyle = '#1e3a8a'; // Deep Navy
@@ -1460,6 +1622,89 @@ export class CanvasRenderer {
         ctx.fillRect(-2, -15, 4, 2);
         ctx.fillRect(0, -17, 2, 6);
       }
+    } else if (loot.type === 'HEART_COIN') {
+      // 💖 Adorable Sparkling 3D Heart Coin (Bonus Fever Special Loot - Value $10 / 10x)
+      const spin = Math.cos(loot.animFrame * 0.14);
+      const scaleX = Math.max(0.2, Math.abs(spin));
+      const r = 11;
+
+      // Radiant Hot Pink / Ruby Aura Glow
+      const glowPulse = (Math.sin(loot.animFrame * 0.25) + 1) / 2;
+      ctx.fillStyle = `rgba(244, 63, 94, ${0.3 + glowPulse * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Outer Golden Rim Ellipse (3D tilt)
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, (r + 2) * scaleX, r + 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, (r + 1) * scaleX, r + 1, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner Ruby-Pink Heart Shape Facet
+      ctx.save();
+      ctx.scale(scaleX, 1);
+      ctx.fillStyle = '#e11d48'; // Deep Crimson Ruby
+      ctx.beginPath();
+      ctx.moveTo(0, 7);
+      ctx.bezierCurveTo(-9, 1, -11, -6, -5, -9);
+      ctx.bezierCurveTo(-1, -10, 0, -5, 0, -4);
+      ctx.bezierCurveTo(0, -5, 1, -10, 5, -9);
+      ctx.bezierCurveTo(11, -6, 9, 1, 0, 7);
+      ctx.fill();
+
+      // Bright Glossy Rose Highlight Layer
+      ctx.fillStyle = '#fb7185';
+      ctx.beginPath();
+      ctx.moveTo(0, 4);
+      ctx.bezierCurveTo(-6, 0, -8, -5, -4, -7);
+      ctx.bezierCurveTo(-1, -8, 0, -4, 0, -3);
+      ctx.bezierCurveTo(0, -4, 1, -8, 4, -7);
+      ctx.bezierCurveTo(8, -5, 6, 0, 0, 4);
+      ctx.fill();
+
+      // White Shine on Top Left Lobe
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-3.5, -6, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Center Gold Sparkle or Heart $ sign
+      if (scaleX > 0.45) {
+        ctx.fillStyle = '#fff1f2';
+        ctx.font = "bold 8px 'Press Start 2P', sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('♥', 0, -0.5);
+      }
+      ctx.restore();
+
+      // Rotating Gleam Sparkle
+      const gleam = (loot.animFrame + loot.id * 4) % 24;
+      if (gleam < 8) {
+        const gAlpha = Math.sin((gleam / 8) * Math.PI);
+        ctx.save();
+        ctx.globalAlpha = gAlpha;
+        ctx.translate(-r * 0.4 * scaleX, -r * 0.5);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(1.2, -1.2);
+        ctx.lineTo(5, 0);
+        ctx.lineTo(1.2, 1.2);
+        ctx.lineTo(0, 5);
+        ctx.lineTo(-1.2, 1.2);
+        ctx.lineTo(-5, 0);
+        ctx.lineTo(-1.2, -1.2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     } else {
       // Money Sack with gold $
       ctx.fillStyle = '#854d0e';
@@ -1535,6 +1780,33 @@ export class CanvasRenderer {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (p.type === 'heart_sparkle') {
+        // 💖 Floating / Bursting mini glowing Ruby-Pink Heart
+        ctx.translate(p.x, p.y);
+        ctx.fillStyle = p.color;
+        const hr = p.size;
+        ctx.beginPath();
+        ctx.moveTo(0, hr * 0.7);
+        ctx.bezierCurveTo(-hr * 0.9, hr * 0.1, -hr * 1.1, -hr * 0.6, -hr * 0.5, -hr * 0.9);
+        ctx.bezierCurveTo(-hr * 0.1, -hr, 0, -hr * 0.5, 0, -hr * 0.4);
+        ctx.bezierCurveTo(0, -hr * 0.5, hr * 0.1, -hr, hr * 0.5, -hr * 0.9);
+        ctx.bezierCurveTo(hr * 1.1, -hr * 0.6, hr * 0.9, hr * 0.1, 0, hr * 0.7);
+        ctx.fill();
+
+        // White sparkle highlight
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-1, -hr * 0.5, 2, 2);
+      } else if (p.type === 'fever_burst') {
+        // Multi-colored rainbow starburst ring
+        ctx.translate(p.x, p.y);
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-2, -2, 4, 4);
       } else {
         ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
       }

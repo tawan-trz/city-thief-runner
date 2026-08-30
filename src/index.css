@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+html, body {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+#root {
+  min-height: 100vh;
+  overscroll-behavior: none;
+}
