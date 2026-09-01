@@ -540,6 +540,50 @@ class RetroAudioEngine {
     });
   }
 
+  // Falling into Pit sound (Descending comical whistle / drop pitch whoosh)
+  playFallPit() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+
+    // 1. Descending slide tone (high to low drop)
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+
+    osc.frequency.setValueAtTime(540, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.45);
+
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.5);
+
+    // 2. Sub-bass rumble thud at bottom
+    const subOsc = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+    subOsc.type = 'triangle';
+
+    subOsc.frequency.setValueAtTime(110, now + 0.15);
+    subOsc.frequency.exponentialRampToValueAtTime(35, now + 0.45);
+
+    subGain.gain.setValueAtTime(0.001, now + 0.15);
+    subGain.gain.linearRampToValueAtTime(0.25, now + 0.2);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+
+    subOsc.connect(subGain);
+    subGain.connect(this.ctx.destination);
+
+    subOsc.start(now + 0.15);
+    subOsc.stop(now + 0.5);
+  }
+
   toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     return this.isMuted;

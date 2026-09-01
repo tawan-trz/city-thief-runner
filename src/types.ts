@@ -17,11 +17,21 @@ export interface Player {
   deathVy: number;
   deathRotation: number;
   busted: boolean;
+  fellIntoPit?: boolean;
+  deathReason?: 'BUSTED' | 'PIT';
   isDucking: boolean;
   isSkateboarding?: boolean;
   isMagnetActive?: boolean;
   coyoteTimer?: number;
   jumpBufferTimer?: number;
+}
+
+export interface GroundPit {
+  id: number;
+  x: number;
+  width: number;
+  passed?: boolean;
+  hasWarningCone?: boolean;
 }
 
 export interface PoliceOfficer {

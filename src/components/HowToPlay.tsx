@@ -87,6 +87,9 @@ export const HowToPlay: React.FC = () => {
             </div>
             <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
               <li>
+                <span className="text-orange-400 font-bold">🕳️ หลุม/ช่องว่างบนถนน (Road Gaps):</span> <b>กระโดดข้ามตามแนวโค้งเหรียญ (ถ้าตกร่องหลุม = Game Over ทันที!)</b>
+              </li>
+              <li>
                 <span className="text-amber-400">กรวย / ถังขยะ / แผงกั้น:</span> <b>กระโดดข้าม</b>
               </li>
               <li>

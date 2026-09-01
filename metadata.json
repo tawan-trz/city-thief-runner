@@ -1,5 +1,5 @@
 {
-  "name": "Retro Jump Runner",
+  "name": "City Thief Runner",
   "description": "เกมโจรวิ่งหนีตำรวจ 2D Cops & Robbers City Chase กระโดดหลบสิ่งกีดขวางด้วย HTML5 Canvas",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

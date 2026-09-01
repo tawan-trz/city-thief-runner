@@ -4,6 +4,7 @@ import {
   Difficulty,
   FloatingText,
   GameState,
+  GroundPit,
   LootItem,
   LootType,
   Obstacle,
@@ -58,6 +59,7 @@ export default function App() {
     sirenTimer: number;
     nextSpawnDistance: number;
     nextLootDistance: number;
+    nextPitDistance: number;
     lastSpeedLevel: number;
     hasAnnouncedNewRecord: boolean;
     initialHighScore: number;
@@ -85,6 +87,7 @@ export default function App() {
     sirenTimer: 0,
     nextSpawnDistance: 420,
     nextLootDistance: 260,
+    nextPitDistance: 300,
     lastSpeedLevel: 1.0,
     hasAnnouncedNewRecord: false,
     initialHighScore: 0,
@@ -133,6 +136,7 @@ export default function App() {
   });
 
   const obstaclesRef = useRef<Obstacle[]>([]);
+  const pitsRef = useRef<GroundPit[]>([]);
   const lootItemsRef = useRef<LootItem[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const floatingTextsRef = useRef<FloatingText[]>([]);
@@ -140,6 +144,7 @@ export default function App() {
   const buildingsNearRef = useRef<CityBuilding[]>([]);
 
   const nextObstacleId = useRef<number>(1);
+  const nextPitId = useRef<number>(1);
   const nextLootId = useRef<number>(1);
   const nextParticleId = useRef<number>(1);
   const nextTextId = useRef<number>(1);
@@ -585,6 +590,7 @@ export default function App() {
     stateRef.current.sirenTimer = 0;
     stateRef.current.nextSpawnDistance = 420;
     stateRef.current.nextLootDistance = 260;
+    stateRef.current.nextPitDistance = 320;
     stateRef.current.lastSpeedLevel = 1.0;
     stateRef.current.hasAnnouncedNewRecord = false;
     stateRef.current.initialHighScore = stateRef.current.highScore;
@@ -646,6 +652,7 @@ export default function App() {
     };
 
     obstaclesRef.current = [];
+    pitsRef.current = [];
     lootItemsRef.current = [];
     particlesRef.current = [];
     floatingTextsRef.current = [];
@@ -1038,6 +1045,23 @@ export default function App() {
           p.jumpBufferTimer = Math.max(0, (p.jumpBufferTimer ?? 0) - dtScale);
         }
 
+        // Update Ground Pits position & clean up off-screen pits
+        for (let i = pitsRef.current.length - 1; i >= 0; i--) {
+          const pit = pitsRef.current[i];
+          pit.x -= stepSpeed;
+          if (pit.x + pit.width < -120) {
+            pitsRef.current.splice(i, 1);
+          }
+        }
+
+        // Check if player's foot position is directly above a road gap/pit
+        const playerFootX = p.x;
+        const activePitUnderFoot = !s.isBonusPhase
+          ? pitsRef.current.find(
+              (pit) => playerFootX >= pit.x + 8 && playerFootX <= pit.x + pit.width - 8
+            )
+          : null;
+
         // Robber (Player) Physics: Tight, responsive, snappy jump arc & faster gravity fall
         // Rising gravity: 0.46 for agile takeoff; Falling gravity: 0.68 for swift, snappy landing
         const gravity = (p.vy < 0 ? 0.46 : 0.68) * dtScale;
@@ -1045,28 +1069,60 @@ export default function App() {
         if (p.vy > 14.0) p.vy = 14.0;
         p.y += p.vy * dtScale;
 
-        // Ground collision & Jump Buffer Execution
-        if (p.y >= GROUND_Y) {
-          const wasInAir = !p.isGrounded;
-          p.y = GROUND_Y;
-          p.vy = 0;
-          p.isGrounded = true;
-          p.jumpCount = 0;
-          p.coyoteTimer = 12;
+        // Ground & Pit Collision Handling
+        if (activePitUnderFoot) {
+          // Player is over a void/pit! No solid footing
+          p.isGrounded = false;
+          p.coyoteTimer = 0;
 
-          if (wasInAir) {
-            spawnDust(p.x, GROUND_Y, 3);
+          // If the player drops down past the normal road level, they plummet into the abyss!
+          if (p.y >= GROUND_Y) {
+            p.vy += 0.55 * dtScale; // Accelerate into abyss
+            p.y += p.vy * dtScale;
 
-            // Execute Buffered Jump if player pressed Jump right before touching down (~200ms window)
-            if ((p.jumpBufferTimer ?? 0) > 0) {
-              p.jumpBufferTimer = 0;
-              p.vy = -10.8;
-              p.isGrounded = false;
-              p.jumpCount = 1;
-              p.coyoteTimer = 0;
-              jumpKeyReleasedRef.current = false;
-              soundFx.playJump();
+            // Trigger Pit Fall Game Over once player falls into the pit gap
+            if (p.y >= GROUND_Y + 16 && !p.isDead) {
+              s.gameState = 'GAME_OVER';
+              setGameState('GAME_OVER');
+              p.isDead = true;
+              p.busted = false;
+              p.fellIntoPit = true;
+              p.deathReason = 'PIT';
+              p.deathVy = p.vy;
+
+              // Cop halts before pit edge
+              cop.isTackling = false;
+              cop.targetX = Math.min(cop.x, activePitUnderFoot.x - 30);
+
+              soundFx.playFallPit();
+              spawnDust(p.x, GROUND_Y, 6);
+              addFloatingText('FELL INTO PIT! 🕳️', p.x, GROUND_Y - 30, '#f97316', 16);
+            }
+          }
+        } else {
+          // Solid Ground: Standard Landing & Jump Buffer Execution
+          if (p.y >= GROUND_Y) {
+            const wasInAir = !p.isGrounded;
+            p.y = GROUND_Y;
+            p.vy = 0;
+            p.isGrounded = true;
+            p.jumpCount = 0;
+            p.coyoteTimer = 12;
+
+            if (wasInAir) {
               spawnDust(p.x, GROUND_Y, 3);
+
+              // Execute Buffered Jump if player pressed Jump right before touching down (~200ms window)
+              if ((p.jumpBufferTimer ?? 0) > 0) {
+                p.jumpBufferTimer = 0;
+                p.vy = -10.8;
+                p.isGrounded = false;
+                p.jumpCount = 1;
+                p.coyoteTimer = 0;
+                jumpKeyReleasedRef.current = false;
+                soundFx.playJump();
+                spawnDust(p.x, GROUND_Y, 3);
+              }
             }
           }
         }
@@ -1084,13 +1140,23 @@ export default function App() {
           }
         }
 
-        // Chasing Police Officer Animation - Fast energetic sprint cadence
+        // Chasing Police Officer Animation - Fast energetic sprint cadence & Pit vaulting
         cop.runTimer += dtScale;
         if (cop.runTimer > Math.max(2, 5.5 - Math.floor(speedMultiplier * 1.8))) {
           cop.runTimer = 0;
           cop.runFrame = (cop.runFrame + 1) % 4;
         }
         cop.whistleTimer += dtScale;
+
+        // Police officer leaps smoothly over pits if chasing behind player
+        const isCopOverPit = pitsRef.current.some(
+          (pit) => cop.x >= pit.x - 14 && cop.x <= pit.x + pit.width + 14
+        );
+        if (isCopOverPit && !p.fellIntoPit) {
+          cop.y = GROUND_Y - 24; // Athletic leap across pit
+        } else if (!isCopOverPit && !p.fellIntoPit) {
+          cop.y = GROUND_Y;
+        }
 
         // Periodic runner dust
         if (p.isGrounded && !p.isDucking && Math.random() < 0.12) {
@@ -1105,161 +1171,203 @@ export default function App() {
           soundFx.playWhistle();
         }
 
-        // Spawn Obstacles (Balanced 50/50: Ground for Jumping vs Overhead for Ducking - Paused during Bonus Phase)
+        // 1. SPAWN OBSTACLES (Balanced 50/50: Ground for Jumping vs Overhead for Ducking - Paused during Bonus Phase)
         if (!s.isBonusPhase) {
           s.nextSpawnDistance -= stepSpeed;
           if (s.nextSpawnDistance <= 0) {
-            // 50% Ground Jump obstacles, 50% Overhead Duck obstacles
-            const groundTypes: ObstacleType[] = ['TRAFFIC_CONE', 'TRASH_CAN', 'ROADBLOCK'];
-            const overheadTypes: ObstacleType[] = ['POLICE_DRONE', 'OVERHEAD_BARRIER', 'CONSTRUCTION_SCAFFOLD'];
+            // Fair Spacing Check: Do NOT spawn an obstacle right on top of or too close to an upcoming pit
+            const spawnX = CANVAS_WIDTH + 40;
+            const isPitNearObstacle = pitsRef.current.some(
+              (pit) => Math.abs(pit.x + pit.width / 2 - spawnX) < 220
+            );
 
-            let chosenCategory: 'GROUND' | 'OVERHEAD';
-            if (lastObstacleCategoryRef.current === null) {
-              chosenCategory = Math.random() < 0.5 ? 'GROUND' : 'OVERHEAD';
-            } else if (lastObstacleCategoryRef.current === 'GROUND') {
-              // Slightly favor alternating to prevent long repetitive streaks
-              chosenCategory = Math.random() < 0.6 ? 'OVERHEAD' : 'GROUND';
+            if (isPitNearObstacle) {
+              // Delay obstacle spawn until pit runway is clear
+              s.nextSpawnDistance = 120;
             } else {
-              chosenCategory = Math.random() < 0.6 ? 'GROUND' : 'OVERHEAD';
-            }
-            lastObstacleCategoryRef.current = chosenCategory;
+              // 50% Ground Jump obstacles, 50% Overhead Duck obstacles
+              const groundTypes: ObstacleType[] = ['TRAFFIC_CONE', 'TRASH_CAN', 'ROADBLOCK'];
+              const overheadTypes: ObstacleType[] = ['POLICE_DRONE', 'OVERHEAD_BARRIER', 'CONSTRUCTION_SCAFFOLD'];
 
-            const randType: ObstacleType =
-              chosenCategory === 'GROUND'
-                ? groundTypes[Math.floor(Math.random() * groundTypes.length)]
-                : overheadTypes[Math.floor(Math.random() * overheadTypes.length)];
-
-            let obsWidth = 32;
-            let obsHeight = 36;
-            let obsY = GROUND_Y - obsHeight;
-
-            if (randType === 'TRAFFIC_CONE') {
-              obsWidth = 26;
-              obsHeight = 30;
-              obsY = GROUND_Y - obsHeight;
-            } else if (randType === 'TRASH_CAN') {
-              obsWidth = 32;
-              obsHeight = 38;
-              obsY = GROUND_Y - obsHeight;
-            } else if (randType === 'ROADBLOCK') {
-              obsWidth = 44;
-              obsHeight = 38;
-              obsY = GROUND_Y - obsHeight;
-            } else if (randType === 'POLICE_DRONE') {
-              obsWidth = 44;
-              obsHeight = 24;
-              // Overhead hovering: head-height to require ducking (SLIDE)
-              obsY = GROUND_Y - 46;
-            } else if (randType === 'OVERHEAD_BARRIER') {
-              obsWidth = 52;
-              obsHeight = 26;
-              // Overhead traffic sign: head-height to require ducking (SLIDE)
-              obsY = GROUND_Y - 48;
-            } else if (randType === 'CONSTRUCTION_SCAFFOLD') {
-              // High Long Overhead Scaffold (100% Slide Mandatory - Impossible to jump over)
-              obsWidth = 140;
-              obsY = 0;
-              obsHeight = GROUND_Y - 26; // Leaves 26px crawl tunnel underneath
-            }
-
-            obstaclesRef.current.push({
-              id: nextObstacleId.current++,
-              type: randType,
-              x: CANVAS_WIDTH + 40,
-              y: obsY,
-              width: obsWidth,
-              height: obsHeight,
-              passed: false,
-              animFrame: 0,
-              animTimer: 0,
-              lightState: true,
-            });
-
-            // 1. OBSTACLE-INTEGRATED COIN PATTERNS & BAIT/TRAP PLACEMENTS:
-            const obsCenterX = CANVAS_WIDTH + 40 + obsWidth / 2;
-            if (chosenCategory === 'GROUND') {
-              const isRoadblock = randType === 'ROADBLOCK';
-
-              // Decide between 3 ground obstacle coin configurations:
-              // 1. Parabolic Jump Arc (Safety & Skill Guide)
-              // 2. High Bait Temptation (Big diamond/money bag in air right above or just before landing)
-              // 3. Ground Bait Trap (Low coin trail right before obstacle that tempts running too long)
-              const baitRoll = Math.random();
-
-              if (baitRoll < 0.5) {
-                // Config A: Classic 3-Point Parabolic Jump Arc
-                const apexType: LootType = isRoadblock
-                  ? (Math.random() < 0.35 ? 'DIAMOND' : Math.random() < 0.65 ? 'MONEY_BAG' : 'GOLD_COIN')
-                  : (Math.random() < 0.3 ? 'MONEY_BAG' : 'GOLD_COIN');
-                const apexVal = apexType === 'DIAMOND' ? 50 : apexType === 'MONEY_BAG' ? 20 : 3;
-
-                const jumpArc = [
-                  { x: obsCenterX - 55, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
-                  {
-                    x: obsCenterX - 11,
-                    y: Math.min(obsY - 38, GROUND_Y - 95),
-                    type: apexType,
-                    val: apexVal,
-                  },
-                  { x: obsCenterX + 35, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
-                ];
-                spawnSingleRowLoot(jumpArc);
-              } else if (baitRoll < 0.75) {
-                // Config B: "Greed Trap / High Bait" (Diamond perched high in double-jump apex, landing right over hazard)
-                const highBait = [
-                  { x: obsCenterX - 45, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: obsCenterX - 11, y: GROUND_Y - 110, type: 'DIAMOND' as LootType, val: 50 },
-                  { x: obsCenterX + 25, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
-                ];
-                spawnSingleRowLoot(highBait);
+              let chosenCategory: 'GROUND' | 'OVERHEAD';
+              if (lastObstacleCategoryRef.current === null) {
+                chosenCategory = Math.random() < 0.5 ? 'GROUND' : 'OVERHEAD';
+              } else if (lastObstacleCategoryRef.current === 'GROUND') {
+                chosenCategory = Math.random() < 0.6 ? 'OVERHEAD' : 'GROUND';
               } else {
-                // Config C: "Low Run Bait Trap" (2 coins right before the obstacle edge tempting greed, then high apex coin)
-                const lowBaitTrap = [
-                  { x: obsCenterX - 85, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: obsCenterX - 50, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
-                  { x: obsCenterX - 11, y: Math.min(obsY - 38, GROUND_Y - 95), type: 'MONEY_BAG' as LootType, val: 20 },
-                ];
-                spawnSingleRowLoot(lowBaitTrap);
+                chosenCategory = Math.random() < 0.6 ? 'GROUND' : 'OVERHEAD';
               }
+              lastObstacleCategoryRef.current = chosenCategory;
+
+              const randType: ObstacleType =
+                chosenCategory === 'GROUND'
+                  ? groundTypes[Math.floor(Math.random() * groundTypes.length)]
+                  : overheadTypes[Math.floor(Math.random() * overheadTypes.length)];
+
+              let obsWidth = 32;
+              let obsHeight = 36;
+              let obsY = GROUND_Y - obsHeight;
+
+              if (randType === 'TRAFFIC_CONE') {
+                obsWidth = 26;
+                obsHeight = 30;
+                obsY = GROUND_Y - obsHeight;
+              } else if (randType === 'TRASH_CAN') {
+                obsWidth = 32;
+                obsHeight = 38;
+                obsY = GROUND_Y - obsHeight;
+              } else if (randType === 'ROADBLOCK') {
+                obsWidth = 44;
+                obsHeight = 38;
+                obsY = GROUND_Y - obsHeight;
+              } else if (randType === 'POLICE_DRONE') {
+                obsWidth = 44;
+                obsHeight = 24;
+                obsY = GROUND_Y - 46;
+              } else if (randType === 'OVERHEAD_BARRIER') {
+                obsWidth = 52;
+                obsHeight = 26;
+                obsY = GROUND_Y - 48;
+              } else if (randType === 'CONSTRUCTION_SCAFFOLD') {
+                obsWidth = 140;
+                obsY = 0;
+                obsHeight = GROUND_Y - 26;
+              }
+
+              obstaclesRef.current.push({
+                id: nextObstacleId.current++,
+                type: randType,
+                x: spawnX,
+                y: obsY,
+                width: obsWidth,
+                height: obsHeight,
+                passed: false,
+                animFrame: 0,
+                animTimer: 0,
+                lightState: true,
+              });
+
+              // OBSTACLE-INTEGRATED COIN PATTERNS & BAIT/TRAP PLACEMENTS:
+              const obsCenterX = spawnX + obsWidth / 2;
+              if (chosenCategory === 'GROUND') {
+                const isRoadblock = randType === 'ROADBLOCK';
+                const baitRoll = Math.random();
+
+                if (baitRoll < 0.5) {
+                  // Config A: Classic 3-Point Parabolic Jump Arc
+                  const apexType: LootType = isRoadblock
+                    ? (Math.random() < 0.35 ? 'DIAMOND' : Math.random() < 0.65 ? 'MONEY_BAG' : 'GOLD_COIN')
+                    : (Math.random() < 0.3 ? 'MONEY_BAG' : 'GOLD_COIN');
+                  const apexVal = apexType === 'DIAMOND' ? 50 : apexType === 'MONEY_BAG' ? 20 : 3;
+
+                  const jumpArc = [
+                    { x: obsCenterX - 55, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
+                    {
+                      x: obsCenterX - 11,
+                      y: Math.min(obsY - 38, GROUND_Y - 95),
+                      type: apexType,
+                      val: apexVal,
+                    },
+                    { x: obsCenterX + 35, y: GROUND_Y - 48, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(jumpArc);
+                } else if (baitRoll < 0.75) {
+                  // Config B: "Greed Trap / High Bait"
+                  const highBait = [
+                    { x: obsCenterX - 45, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: obsCenterX - 11, y: GROUND_Y - 110, type: 'DIAMOND' as LootType, val: 50 },
+                    { x: obsCenterX + 25, y: GROUND_Y - 50, type: 'GOLD_COIN' as LootType, val: 2 },
+                  ];
+                  spawnSingleRowLoot(highBait);
+                } else {
+                  // Config C: "Low Run Bait Trap"
+                  const lowBaitTrap = [
+                    { x: obsCenterX - 85, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: obsCenterX - 50, y: GROUND_Y - 22, type: 'GOLD_COIN' as LootType, val: 2 },
+                    { x: obsCenterX - 11, y: Math.min(obsY - 38, GROUND_Y - 95), type: 'MONEY_BAG' as LootType, val: 20 },
+                  ];
+                  spawnSingleRowLoot(lowBaitTrap);
+                }
+              } else {
+                // Overhead Obstacles
+                const isScaffold = randType === 'CONSTRUCTION_SCAFFOLD';
+                const overheadBaitRoll = Math.random();
+
+                if (overheadBaitRoll < 0.6) {
+                  // Config A: Clean Ground Slide Trail inside the tunnel
+                  const slideCoins: { x: number; y: number; type: LootType; val: number }[] = [
+                    { x: obsCenterX - 45, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                    {
+                      x: obsCenterX - 11,
+                      y: GROUND_Y - 20,
+                      type: isScaffold || Math.random() < 0.35 ? 'MONEY_BAG' : 'GOLD_COIN',
+                      val: isScaffold || Math.random() < 0.35 ? 18 : 2,
+                    },
+                    { x: obsCenterX + 25, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                  ];
+                  spawnSingleRowLoot(slideCoins);
+                } else {
+                  // Config B: "Air Bait vs Safe Slide Split"
+                  const splitRoute: { x: number; y: number; type: LootType; val: number }[] = [
+                    { x: obsCenterX - 35, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                    { x: obsCenterX + 15, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
+                    { x: obsCenterX - 75, y: GROUND_Y - 70, type: 'DIAMOND', val: 50 },
+                  ];
+                  spawnSingleRowLoot(splitRoute);
+                }
+              }
+
+              // Dynamic Fair Obstacle Spacing
+              const extraWidthBuffer = randType === 'CONSTRUCTION_SCAFFOLD' ? 120 : 0;
+              const minClearRunway = 270 + extraWidthBuffer;
+              const randomVariance = Math.random() * 140;
+              const baseGap = (obsWidth + minClearRunway + randomVariance) * speedMultiplier;
+              s.nextSpawnDistance = baseGap;
+            }
+          }
+        }
+
+        // 2. SPAWN GROUND PITS (Gaps in the road like Cookie Run - Safe, Fair & Jumpable)
+        if (!s.isBonusPhase && s.score > 120) {
+          s.nextPitDistance -= stepSpeed;
+          if (s.nextPitDistance <= 0) {
+            const spawnPitX = CANVAS_WIDTH + 60;
+
+            // Safe buffer check: Ensure spawn area is clear of nearby obstacles
+            const isObstacleNear = obstaclesRef.current.some(
+              (obs) => Math.abs(obs.x + obs.width / 2 - spawnPitX) < 220
+            );
+
+            if (isObstacleNear) {
+              // Delay pit spawn until obstacle runway has passed
+              s.nextPitDistance = 90;
             } else {
-              // Overhead Obstacles (POLICE_DRONE / OVERHEAD_BARRIER / CONSTRUCTION_SCAFFOLD)
-              const isScaffold = randType === 'CONSTRUCTION_SCAFFOLD';
-              const overheadBaitRoll = Math.random();
+              // Pit width: 74px to 96px (Easily jumpable with single jump, generous for double jump)
+              const pitW = Math.floor(74 + Math.random() * 22);
+              pitsRef.current.push({
+                id: nextPitId.current++,
+                x: spawnPitX,
+                width: pitW,
+                passed: false,
+              });
 
-              if (overheadBaitRoll < 0.6) {
-                // Config A: Clean Ground Slide Trail inside the tunnel (Rewards proper sliding)
-                const slideCoins: { x: number; y: number; type: LootType; val: number }[] = [
-                  { x: obsCenterX - 45, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                  {
-                    x: obsCenterX - 11,
-                    y: GROUND_Y - 20,
-                    type: isScaffold || Math.random() < 0.35 ? 'MONEY_BAG' : 'GOLD_COIN',
-                    val: isScaffold || Math.random() < 0.35 ? 18 : 2,
-                  },
-                  { x: obsCenterX + 25, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                ];
-                spawnSingleRowLoot(slideCoins);
-              } else {
-                // Config B: "Air Bait vs Safe Slide Split" (Greed Trap: High floating Diamond right in front of the drone to tempt jump, but slide trail underneath is safe)
-                const splitRoute: { x: number; y: number; type: LootType; val: number }[] = [
-                  // Safe slide coins under obstacle
-                  { x: obsCenterX - 35, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                  { x: obsCenterX + 15, y: GROUND_Y - 20, type: 'GOLD_COIN', val: 2 },
-                  // High bait coin just ahead of obstacle (tempts jumping early)
-                  { x: obsCenterX - 75, y: GROUND_Y - 70, type: 'DIAMOND', val: 50 },
-                ];
-                spawnSingleRowLoot(splitRoute);
-              }
+              // Cookie Run Style Parabolic Coin Jump Arc right over the pit
+              const pitCenter = spawnPitX + pitW / 2;
+              const pitApexType: LootType = Math.random() < 0.4 ? 'DIAMOND' : 'MONEY_BAG';
+              const pitApexVal = pitApexType === 'DIAMOND' ? 50 : 25;
+
+              const pitCoinArc: { x: number; y: number; type: LootType; val: number }[] = [
+                { x: pitCenter - 48, y: GROUND_Y - 36, type: 'GOLD_COIN', val: 3 },
+                { x: pitCenter, y: GROUND_Y - 92, type: pitApexType, val: pitApexVal },
+                { x: pitCenter + 48, y: GROUND_Y - 36, type: 'GOLD_COIN', val: 3 },
+              ];
+              spawnSingleRowLoot(pitCoinArc);
+
+              // Set generous safe landing runway before next obstacle can spawn
+              s.nextSpawnDistance = Math.max(s.nextSpawnDistance, 280);
+              // Next pit distance interval
+              s.nextPitDistance = 420 + Math.random() * 280;
             }
-
-            // Dynamic Fair Obstacle Spacing (Scales with speed to guarantee 1.1s - 1.5s reaction window):
-            // - If the obstacle was wide (like CONSTRUCTION_SCAFFOLD at 140px), add extra recovery buffer so player exits slide smoothly.
-            // - Ground vs Overhead obstacles both have guaranteed landing runway before the next hazard (No unavoidable deaths).
-            const extraWidthBuffer = randType === 'CONSTRUCTION_SCAFFOLD' ? 120 : 0;
-            const minClearRunway = 270 + extraWidthBuffer;
-            const randomVariance = Math.random() * 140;
-            const baseGap = (obsWidth + minClearRunway + randomVariance) * speedMultiplier;
-            s.nextSpawnDistance = baseGap;
           }
         }
 
@@ -1682,12 +1790,21 @@ export default function App() {
         }
       }
 
-      // 2. UPDATE GAME OVER / BUSTED COPS TACKLE ANIMATION
+      // 2. UPDATE GAME OVER / BUSTED COPS TACKLE ANIMATION / PIT FALL
       if (s.gameState === 'GAME_OVER') {
+        if (p.isDead && p.fellIntoPit) {
+          p.vy += 0.55 * dtScale;
+          p.y += p.vy * dtScale;
+          p.deathRotation += 3.5 * dtScale;
+          if (p.y > CANVAS_HEIGHT + 100) {
+            p.y = CANVAS_HEIGHT + 100;
+          }
+        }
+
         if (cop.x < cop.targetX) {
           cop.x = Math.min(cop.targetX, cop.x + 4.5 * dtScale);
-        } else {
-          cop.x = cop.targetX;
+        } else if (cop.x > cop.targetX) {
+          cop.x = Math.max(cop.targetX, cop.x - 4.5 * dtScale);
         }
       }
 
@@ -1728,8 +1845,8 @@ export default function App() {
         s.score
       );
 
-      // City Asphalt Road & Curb
-      CanvasRenderer.drawRoad(ctx, s.groundOffset, s.sirenTimer, s.isBonusPhase);
+      // City Asphalt Road & Curb with Cookie Run style Pits / Ground Gaps
+      CanvasRenderer.drawRoad(ctx, s.groundOffset, s.sirenTimer, s.isBonusPhase, pitsRef.current);
 
       // Loot Items
       for (const loot of lootItemsRef.current) {
@@ -1900,19 +2017,48 @@ export default function App() {
             </div>
           )}
 
-          {/* OVERLAY: BUSTED / GAME OVER SCREEN */}
+          {/* OVERLAY: BUSTED / PIT FALL / GAME OVER SCREEN */}
           {gameState === 'GAME_OVER' && (
             <div className="absolute inset-0 bg-black/80 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-40">
-              <div className="bg-slate-900/95 border-2 border-red-500/80 rounded-2xl p-5 sm:p-6 max-w-sm w-full shadow-2xl flex flex-col items-center gap-3.5">
+              <div
+                className={`bg-slate-900/95 border-2 rounded-2xl p-5 sm:p-6 max-w-sm w-full shadow-2xl flex flex-col items-center gap-3.5 ${
+                  playerRef.current.deathReason === 'PIT'
+                    ? 'border-orange-500/80'
+                    : 'border-red-500/80'
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <span className="text-3xl animate-bounce">🚨</span>
-                  <span className="text-3xl">⛓️</span>
+                  {playerRef.current.deathReason === 'PIT' ? (
+                    <>
+                      <span className="text-3xl animate-bounce">🕳️</span>
+                      <span className="text-3xl">⚠️</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-3xl animate-bounce">🚨</span>
+                      <span className="text-3xl">⛓️</span>
+                    </>
+                  )}
                 </div>
 
-                <div className="bg-red-600 text-white font-['Press_Start_2P'] text-sm sm:text-base px-4 py-1.5 rounded-lg border-2 border-red-400 tracking-wider shadow-lg">
-                  BUSTED!
+                <div
+                  className={`text-white font-['Press_Start_2P'] text-sm sm:text-base px-4 py-1.5 rounded-lg border-2 tracking-wider shadow-lg ${
+                    playerRef.current.deathReason === 'PIT'
+                      ? 'bg-orange-600 border-orange-400'
+                      : 'bg-red-600 border-red-400'
+                  }`}
+                >
+                  {playerRef.current.deathReason === 'PIT' ? 'FELL INTO PIT!' : 'BUSTED!'}
                 </div>
-                <p className="text-xs text-red-300 font-semibold">คุณโดนตำรวจรวบตัวแล้ว!</p>
+                <p
+                  className={`text-xs font-semibold ${
+                    playerRef.current.deathReason === 'PIT' ? 'text-orange-300' : 'text-red-300'
+                  }`}
+                >
+                  {playerRef.current.deathReason === 'PIT'
+                    ? 'คุณสะดุดตกร่องหลุมถนนก่อสร้าง! (Fell into road gap)'
+                    : 'คุณโดนตำรวจรวบตัวแล้ว!'}
+                </p>
 
                 {/* Score Summary Box */}
                 <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex flex-col gap-2 font-mono">

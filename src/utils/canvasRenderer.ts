@@ -1,6 +1,7 @@
 import {
   CityBuilding,
   FloatingText,
+  GroundPit,
   LootItem,
   Obstacle,
   Particle,
@@ -266,94 +267,245 @@ export class CanvasRenderer {
     }
   }
 
-  // Draw City Asphalt Road & Curbs (or Glowing Celestial Road during Bonus Phase)
-  static drawRoad(ctx: CanvasRenderingContext2D, groundOffset: number, sirenTimer: number, isBonusPhase = false) {
+  // Draw City Asphalt Road & Curbs with Ground Gaps / Pits (or Glowing Celestial Road during Bonus Phase)
+  static drawRoad(
+    ctx: CanvasRenderingContext2D,
+    groundOffset: number,
+    sirenTimer: number,
+    isBonusPhase = false,
+    pits: GroundPit[] = []
+  ) {
     const y = GROUND_Y;
     const h = GROUND_HEIGHT;
 
-    if (isBonusPhase) {
-      // 1. Golden Highway Sidewalk / Glowing Amber Curb
-      ctx.fillStyle = '#78350f'; // Deep Amber Brown
-      ctx.fillRect(0, y, CANVAS_WIDTH, 10);
-      ctx.fillStyle = '#fde047'; // Radiant Gold edge
-      ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+    // 1. Calculate solid ground segments between active pits
+    const solidSegments: { start: number; end: number }[] = [];
+    
+    // Filter and sort active pits that touch the screen [0, CANVAS_WIDTH]
+    const activePits = pits
+      .filter((p) => p.x + p.width > -50 && p.x < CANVAS_WIDTH + 50)
+      .sort((a, b) => a.x - b.x);
 
-      const curbTile = 32;
-      const curbOff = groundOffset % curbTile;
-      ctx.fillStyle = '#b45309';
-      for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
-        ctx.fillRect(x, y, 2, 10);
-      }
-
-      // 2. Golden Highway Asphalt
-      ctx.fillStyle = '#451a03'; // Warm Mahogany / Golden Asphalt
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
-
-      // Glowing Double Gold Highway Stripes
-      const dashLength = 36;
-      const gapLength = 28;
-      const totalDash = dashLength + gapLength;
-      const dashOffset = groundOffset % totalDash;
-
-      ctx.fillStyle = '#fef08a'; // Radiant Gold
-      const lineY = y + 42;
-      for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
-        ctx.fillRect(x, lineY, dashLength, 5);
-        ctx.fillStyle = '#d97706'; // Amber shadow under stripe
-        ctx.fillRect(x, lineY + 4, dashLength, 1.5);
-        ctx.fillStyle = '#fef08a';
-      }
-
-      // Magical road golden glow wave
-      const wave = (Math.sin(sirenTimer * 8) + 1) / 2;
-      ctx.fillStyle = `rgba(251, 191, 36, ${0.12 + wave * 0.08})`;
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+    if (activePits.length === 0 || isBonusPhase) {
+      solidSegments.push({ start: 0, end: CANVAS_WIDTH });
     } else {
-      // 1. Concrete sidewalk / curb
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(0, y, CANVAS_WIDTH, 10);
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+      let curX = 0;
+      for (const pit of activePits) {
+        const pitStart = Math.max(0, pit.x);
+        const pitEnd = Math.min(CANVAS_WIDTH, pit.x + pit.width);
 
-      // Curb edge repeating tiles
-      const curbTile = 32;
-      const curbOff = groundOffset % curbTile;
-      ctx.fillStyle = '#1e293b';
-      for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
-        ctx.fillRect(x, y, 2, 10);
+        if (pitStart > curX) {
+          solidSegments.push({ start: curX, end: pitStart });
+        }
+        curX = Math.max(curX, pitEnd);
       }
+      if (curX < CANVAS_WIDTH) {
+        solidSegments.push({ start: curX, end: CANVAS_WIDTH });
+      }
+    }
 
-      // 2. Dark Asphalt Road
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+    // 2. Draw road across all solid segments
+    for (const seg of solidSegments) {
+      if (seg.end <= seg.start) continue;
 
-      // Road Texture & Asphalt specks
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, 2);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(seg.start, y, seg.end - seg.start, h);
+      ctx.clip();
 
-      // 3. Yellow Dashed Center Line
-      const dashLength = 36;
-      const gapLength = 28;
-      const totalDash = dashLength + gapLength;
-      const dashOffset = groundOffset % totalDash;
+      if (isBonusPhase) {
+        // 1. Golden Highway Sidewalk / Glowing Amber Curb
+        ctx.fillStyle = '#78350f'; // Deep Amber Brown
+        ctx.fillRect(0, y, CANVAS_WIDTH, 10);
+        ctx.fillStyle = '#fde047'; // Radiant Gold edge
+        ctx.fillRect(0, y, CANVAS_WIDTH, 2);
 
-      ctx.fillStyle = '#facc15';
-      const lineY = y + 42;
-      for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
-        ctx.fillRect(x, lineY, dashLength, 5);
-        // Subtle shadow under stripe
-        ctx.fillStyle = '#ca8a04';
-        ctx.fillRect(x, lineY + 4, dashLength, 1);
+        const curbTile = 32;
+        const curbOff = groundOffset % curbTile;
+        ctx.fillStyle = '#b45309';
+        for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
+          ctx.fillRect(x, y, 2, 10);
+        }
+
+        // 2. Golden Highway Asphalt
+        ctx.fillStyle = '#451a03'; // Warm Mahogany / Golden Asphalt
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+
+        // Glowing Double Gold Highway Stripes
+        const dashLength = 36;
+        const gapLength = 28;
+        const totalDash = dashLength + gapLength;
+        const dashOffset = groundOffset % totalDash;
+
+        ctx.fillStyle = '#fef08a'; // Radiant Gold
+        const lineY = y + 42;
+        for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
+          ctx.fillRect(x, lineY, dashLength, 5);
+          ctx.fillStyle = '#d97706'; // Amber shadow under stripe
+          ctx.fillRect(x, lineY + 4, dashLength, 1.5);
+          ctx.fillStyle = '#fef08a';
+        }
+
+        // Magical road golden glow wave
+        const wave = (Math.sin(sirenTimer * 8) + 1) / 2;
+        ctx.fillStyle = `rgba(251, 191, 36, ${0.12 + wave * 0.08})`;
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+      } else {
+        // 1. Concrete sidewalk / curb
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(0, y, CANVAS_WIDTH, 10);
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+
+        // Curb edge repeating tiles
+        const curbTile = 32;
+        const curbOff = groundOffset % curbTile;
+        ctx.fillStyle = '#1e293b';
+        for (let x = -curbOff; x < CANVAS_WIDTH + curbTile; x += curbTile) {
+          ctx.fillRect(x, y, 2, 10);
+        }
+
+        // 2. Dark Asphalt Road
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+
+        // Road Texture & Asphalt specks
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, 2);
+
+        // 3. Yellow Dashed Center Line
+        const dashLength = 36;
+        const gapLength = 28;
+        const totalDash = dashLength + gapLength;
+        const dashOffset = groundOffset % totalDash;
+
         ctx.fillStyle = '#facc15';
+        const lineY = y + 42;
+        for (let x = -dashOffset; x < CANVAS_WIDTH + totalDash; x += totalDash) {
+          ctx.fillRect(x, lineY, dashLength, 5);
+          // Subtle shadow under stripe
+          ctx.fillStyle = '#ca8a04';
+          ctx.fillRect(x, lineY + 4, dashLength, 1);
+          ctx.fillStyle = '#facc15';
+        }
+
+        // 4. Siren reflection on the wet asphalt
+        const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2;
+        ctx.fillStyle = `rgba(239, 68, 68, ${sirenPhase * 0.08})`;
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+
+        ctx.fillStyle = `rgba(59, 130, 246, ${(1 - sirenPhase) * 0.08})`;
+        ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
       }
 
-      // 4. Siren reflection on the wet asphalt
-      const sirenPhase = (Math.sin(sirenTimer * 12) + 1) / 2;
-      ctx.fillStyle = `rgba(239, 68, 68, ${sirenPhase * 0.08})`;
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+      ctx.restore();
+    }
 
-      ctx.fillStyle = `rgba(59, 130, 246, ${(1 - sirenPhase) * 0.08})`;
-      ctx.fillRect(0, y + 10, CANVAS_WIDTH, h - 10);
+    // 3. Draw Pit Abyss & Construction Hazard Edges for each active pit
+    if (!isBonusPhase) {
+      for (const pit of activePits) {
+        this.drawGroundPit(ctx, pit, sirenTimer);
+      }
+    }
+  }
+
+  // Draw Individual Pit / Construction Void
+  private static drawGroundPit(ctx: CanvasRenderingContext2D, pit: GroundPit, sirenTimer: number) {
+    const y = GROUND_Y;
+    const h = GROUND_HEIGHT;
+    const px = pit.x;
+    const pw = pit.width;
+
+    // 1. Abyss Cavity Gradient (Dark subterranean void falling into infinity)
+    const abyssGrad = ctx.createLinearGradient(0, y, 0, y + h);
+    abyssGrad.addColorStop(0, '#030712'); // Pitch darkness
+    abyssGrad.addColorStop(0.35, '#020617');
+    abyssGrad.addColorStop(1, '#000000');
+    ctx.fillStyle = abyssGrad;
+    ctx.fillRect(px, y, pw, h);
+
+    // Deep depth speed / void vertical drop lines
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    for (let lx = px + 14; lx < px + pw - 10; lx += 18) {
+      ctx.fillRect(lx, y + 6, 2, h - 10);
+    }
+
+    // 2. Severed Underground Pipes / Infrastructure inside the gap
+    // Rusty Orange Water Pipe severed at left & right walls
+    ctx.fillStyle = '#c2410c';
+    ctx.fillRect(px - 4, y + 36, 12, 6);
+    ctx.fillRect(px + pw - 8, y + 36, 12, 6);
+    ctx.fillStyle = '#ea580c';
+    ctx.fillRect(px - 4, y + 37, 12, 2);
+    ctx.fillRect(px + pw - 8, y + 37, 12, 2);
+
+    // Cyan High-Voltage Conduit severed lower down with tiny sparks
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(px - 3, y + 54, 9, 4);
+    ctx.fillRect(px + pw - 6, y + 54, 9, 4);
+
+    // Electric spark in pit at random phase
+    const sparkPhase = (Math.sin(sirenTimer * 20 + px) + 1) / 2;
+    if (sparkPhase > 0.85) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(px + 6, y + 53, 3, 3);
+      ctx.fillRect(px + pw - 9, y + 53, 3, 3);
+    }
+
+    // 3. Fractured Jagged Asphalt Edges (Left and Right cliff faces)
+    // Left Cliff Face
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px - 3, y, 3, h);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px - 2, y + 2, 2, 8);
+    ctx.fillRect(px - 3, y + 18, 3, 12);
+    ctx.fillRect(px - 2, y + 42, 2, 16);
+
+    // Right Cliff Face
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + pw, y, 3, h);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + pw, y + 2, 2, 8);
+    ctx.fillRect(px + pw, y + 18, 3, 12);
+    ctx.fillRect(px + pw + 1, y + 42, 2, 16);
+
+    // 4. Yellow & Black Hazard Stripes on Left & Right Curbs
+    const stripeW = 4;
+    // Left Hazard Edge (12px width on curb)
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#facc15' : '#000000';
+      ctx.fillRect(px - 14 + i * stripeW, y, stripeW, 6);
+    }
+    // Right Hazard Edge (12px width on curb)
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#facc15' : '#000000';
+      ctx.fillRect(px + pw + 2 + i * stripeW, y, stripeW, 6);
+    }
+
+    // 5. Blinking Red / Amber Caution Hazard Lights at Pit Rims
+    const blinkOn = Math.sin(sirenTimer * 14) > 0;
+    // Left Beacon
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(px - 8, y - 6, 6, 6); // Base
+    ctx.fillStyle = blinkOn ? '#ef4444' : '#7f1d1d';
+    ctx.fillRect(px - 7, y - 11, 4, 5); // Red Strobe Bulb
+    if (blinkOn) {
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.45)';
+      ctx.beginPath();
+      ctx.arc(px - 5, y - 9, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Right Beacon
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(px + pw + 2, y - 6, 6, 6); // Base
+    ctx.fillStyle = blinkOn ? '#f59e0b' : '#78350f';
+    ctx.fillRect(px + pw + 3, y - 11, 4, 5); // Amber Strobe Bulb
+    if (blinkOn) {
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.45)';
+      ctx.beginPath();
+      ctx.arc(px + pw + 5, y - 9, 8, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -415,7 +567,9 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
-    if (player.isDead || player.busted) {
+    if (player.fellIntoPit || player.deathReason === 'PIT') {
+      this.drawFallingPitRobber(ctx, px, py, pW, pH);
+    } else if (player.isDead || player.busted) {
       this.drawBustedRobber(ctx, px, py, pW, pH);
     } else if (player.isSkateboarding) {
       this.drawSkateboardingRobber(ctx, px, py, pW, pH, player.isGrounded, player.runFrame);
@@ -426,6 +580,87 @@ export class CanvasRenderer {
     } else {
       this.drawRunningRobber(ctx, px, py, pW, pH, player.runFrame);
     }
+
+    ctx.restore();
+  }
+
+  // Draw Robber Panicking and Falling Down into Pit (กางแขนขา ตกหลุมถนน!)
+  private static drawFallingPitRobber(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number
+  ) {
+    const scale = w / 32;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // Upward speed / wind lines indicating falling down
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillRect(2, -18, 2, 14);
+    ctx.fillRect(16, -22, 2, 16);
+    ctx.fillRect(28, -16, 2, 12);
+
+    // Money sack tumbling above
+    ctx.fillStyle = '#854d0e';
+    ctx.fillRect(2, -14, 16, 12);
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(6, -10, 6, 2);
+    // Dollar bill or coins escaping sack
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(18, -12, 3, 3);
+    ctx.fillRect(22, -6, 3, 3);
+
+    // Head with wide shocked eyes and screaming O-mouth
+    ctx.fillStyle = '#1e293b'; // Beanie Hat flying off slightly
+    ctx.fillRect(8, 0, 16, 7);
+    ctx.fillStyle = '#fbcfe8'; // Face
+    ctx.fillRect(8, 7, 16, 11);
+    ctx.fillStyle = '#0f172a'; // Burglar Mask
+    ctx.fillRect(8, 6, 16, 5);
+
+    // Huge Shocked Eyes
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(10, 7, 4, 4);
+    ctx.fillRect(18, 7, 4, 4);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(11, 8, 2, 2);
+    ctx.fillRect(19, 8, 2, 2);
+
+    // Wide Screaming O Mouth
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(13, 13, 6, 5);
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillRect(14, 15, 4, 2); // Tongue
+
+    // Sweat drops
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(2, 4, 3, 4);
+    ctx.fillRect(26, 3, 3, 4);
+
+    // Striped Shirt
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(6, 18, 18, 11);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(6, 20, 18, 3);
+    ctx.fillRect(6, 25, 18, 3);
+
+    // Arms waving UP in panic
+    ctx.fillStyle = '#fbcfe8';
+    ctx.fillRect(0, 8, 6, 14); // Left arm up
+    ctx.fillRect(-2, 4, 6, 6); // Left hand
+    ctx.fillRect(24, 8, 6, 14); // Right arm up
+    ctx.fillRect(26, 4, 6, 6); // Right hand
+
+    // Flailing Legs
+    ctx.fillStyle = '#1e3a8a';
+    ctx.fillRect(4, 28, 7, 8);
+    ctx.fillRect(19, 28, 7, 8);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(2, 34, 9, 4);
+    ctx.fillRect(20, 34, 9, 4);
 
     ctx.restore();
   }
